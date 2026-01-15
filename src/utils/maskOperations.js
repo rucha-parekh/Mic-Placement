@@ -1,3 +1,5 @@
+// utils/maskOperations.js
+
 export const createDefaultSemicircleMask = (radius) => {
   const width = 200;
   const height = 200;

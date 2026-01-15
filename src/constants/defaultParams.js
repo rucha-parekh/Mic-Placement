@@ -1,3 +1,5 @@
+// constants/defaultParams.js
+
 export const DEFAULT_PARAMS = {
   numRecorders: 8,
   generations: 100,

@@ -2,8 +2,8 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import Demo from './demo.jsx'
 import './index.css'
-import './components/MicPlacementOptimizer.jsx'
-import MicPlacementOptimizer from './demo.jsx'
+import MicPlacementOptimizer from './components/MicPlacementOptimizer.jsx'
+
 
 
 ReactDOM.createRoot(document.getElementById('root')).render(

@@ -1,7 +1,7 @@
 // components/ConfigurationPanel.jsx
 
 import React from 'react';
-import { Settings, ChevronDown, ChevronUp, Play } from 'lucide-react';
+import { Settings, ChevronDown, ChevronUp, Play, Sliders } from 'lucide-react';
 import { SliderControl } from './SliderControl';
 
 export const ConfigurationPanel = ({ 
@@ -15,13 +15,15 @@ export const ConfigurationPanel = ({
   onRunOptimization
 }) => {
   return (
-    <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-5 border border-gray-700 shadow-xl">
-      <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-        <Settings className="w-5 h-5 text-blue-400" />
+    <div className="bg-white rounded-2xl p-6 border-2 border-stone-200 shadow-lg hover:shadow-xl transition-shadow">
+      <h2 className="text-xl font-bold mb-5 flex items-center gap-3 text-stone-800">
+        <div className="p-2.5 bg-gradient-to-br from-purple-400 to-purple-600 rounded-xl">
+          <Settings className="w-5 h-5 text-white" />
+        </div>
         Configuration
       </h2>
       
-      <div className="space-y-4">
+      <div className="space-y-5">
         <SliderControl 
           label="Microphones" 
           value={params.numRecorders} 
@@ -60,14 +62,15 @@ export const ConfigurationPanel = ({
 
       <button
         onClick={() => setShowAdvanced(!showAdvanced)}
-        className="w-full mt-4 flex items-center justify-center gap-2 text-sm text-gray-400 hover:text-white transition-colors py-2"
+        className="w-full mt-6 flex items-center justify-center gap-2 text-sm font-semibold text-stone-600 hover:text-stone-900 transition-colors py-3 bg-stone-50 hover:bg-stone-100 rounded-xl border border-stone-200"
       >
+        <Sliders className="w-4 h-4" />
+        {showAdvanced ? 'Hide Advanced' : 'Show Advanced'}
         {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        Advanced Parameters
       </button>
 
       {showAdvanced && (
-        <div className="mt-4 pt-4 border-t border-gray-700 space-y-4">
+        <div className="mt-5 pt-5 border-t-2 border-stone-200 space-y-5 animate-fadeIn">
           <SliderControl 
             label="Population Size" 
             value={params.popSize} 
@@ -117,12 +120,12 @@ export const ConfigurationPanel = ({
             onChange={(v) => setParams({...params, minDist: v})} 
           />
           
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-300">Alpha Curve Strategy</label>
+          <div className="space-y-2.5">
+            <label className="text-sm font-semibold text-stone-700">Alpha Curve Strategy</label>
             <select
               value={params.alphaCurve}
               onChange={(e) => setParams({...params, alphaCurve: e.target.value})}
-              className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 text-sm border border-gray-600 focus:border-blue-500 focus:outline-none"
+              className="w-full bg-stone-50 text-stone-900 rounded-xl px-4 py-3 text-sm border-2 border-stone-300 focus:border-blue-500 focus:outline-none font-medium hover:bg-white transition-colors"
             >
               <option value="linear">Linear (gradual shift)</option>
               <option value="expo">Exponential (rapid shift)</option>
@@ -134,16 +137,18 @@ export const ConfigurationPanel = ({
       <button
         onClick={onRunOptimization}
         disabled={isRunning}
-        className="w-full mt-5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 disabled:from-gray-600 disabled:to-gray-600 disabled:cursor-not-allowed rounded-lg py-3 font-semibold flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-blue-500/50"
+        className="w-full mt-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-stone-300 disabled:to-stone-400 disabled:cursor-not-allowed text-white rounded-xl py-4 font-bold text-base flex items-center justify-center gap-3 transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:transform-none"
       >
         <Play className="w-5 h-5" />
         {isRunning ? `Optimizing ${progress.toFixed(0)}%` : 'Run Optimization'}
       </button>
 
       {isRunning && (
-        <div className="mt-3 bg-gray-700 rounded-full h-2 overflow-hidden">
-          <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-full transition-all duration-300"
-            style={{ width: `${progress}%` }} />
+        <div className="mt-4 bg-stone-200 rounded-full h-3 overflow-hidden shadow-inner">
+          <div 
+            className="bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 h-full transition-all duration-300 rounded-full shadow-lg"
+            style={{ width: `${progress}%` }} 
+          />
         </div>
       )}
     </div>

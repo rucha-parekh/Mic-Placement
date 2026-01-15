@@ -28,11 +28,11 @@ export const VisualizationCanvas = ({
   }, [results, params.radius, mask, useDefaultSemicircle, image, params.sd]);
 
   return (
-    <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-5 border border-gray-700 shadow-xl">
-      <h2 className="text-lg font-semibold mb-4">
-        {results ? 'Optimized Placement' : 'Region Preview'}
+    <div className="bg-white rounded-2xl p-6 border-2 border-stone-200 shadow-lg">
+      <h2 className="text-xl font-bold mb-5 text-stone-800">
+        {results ? '🎯 Optimized Placement' : '📍 Region Preview'}
       </h2>
-      <div className="relative bg-black rounded-lg overflow-hidden shadow-2xl ring-1 ring-white/10">
+      <div className="relative bg-gradient-to-br from-stone-100 to-stone-50 rounded-xl overflow-hidden shadow-inner border-2 border-stone-300">
         {image && !useDefaultSemicircle && (
           <img ref={imageRef} src={image} alt="Region" className="hidden" />
         )}

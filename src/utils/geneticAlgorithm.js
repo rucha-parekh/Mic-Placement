@@ -3,7 +3,7 @@
 import { isInMask, randomInMask } from './maskOperations';
 import { evaluateIndividual } from './fitnessEvaluation';
 
-export const runOptimization = async (params, activeMask, setProgress, setResults, setIsRunning) => {
+export const runOptimization = async (params, activeMask, setProgress, setResults, setIsRunning, initialCoords = null) => {
   if (!activeMask) {
     alert('Please upload an image or use default semicircle!');
     return;
@@ -17,14 +17,37 @@ export const runOptimization = async (params, activeMask, setProgress, setResult
   const gridY = Array.from({ length: gridSize }, (_, i) => 0 + (30 / (gridSize - 1)) * i);
 
   let population = [];
-  for (let i = 0; i < params.popSize; i++) {
-    const individual = { xs: [], ys: [], fitness: 0 };
-    for (let j = 0; j < params.numRecorders; j++) {
-      const pos = randomInMask(activeMask);
-      individual.xs.push(pos.x);
-      individual.ys.push(pos.y);
-    }
+  
+  // If initial coordinates provided, use them
+  if (initialCoords && initialCoords.length > 0) {
+    const individual = { 
+      xs: initialCoords.map(c => c.x), 
+      ys: initialCoords.map(c => c.y), 
+      fitness: 0 
+    };
     population.push(individual);
+    
+    // Fill rest of population with random
+    for (let i = 1; i < params.popSize; i++) {
+      const ind = { xs: [], ys: [], fitness: 0 };
+      for (let j = 0; j < initialCoords.length; j++) {
+        const pos = randomInMask(activeMask);
+        ind.xs.push(pos.x);
+        ind.ys.push(pos.y);
+      }
+      population.push(ind);
+    }
+  } else {
+    // Normal random initialization
+    for (let i = 0; i < params.popSize; i++) {
+      const individual = { xs: [], ys: [], fitness: 0 };
+      for (let j = 0; j < params.numRecorders; j++) {
+        const pos = randomInMask(activeMask);
+        individual.xs.push(pos.x);
+        individual.ys.push(pos.y);
+      }
+      population.push(individual);
+    }
   }
 
   const bestScores = [];
