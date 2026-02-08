@@ -1,7 +1,7 @@
 // components/ResultsPanel.jsx
 
 import React from 'react';
-import { Edit2, RotateCcw, Save } from 'lucide-react';
+import { Edit2, RotateCcw } from 'lucide-react';
 
 export const ResultsPanel = ({ 
   results, 
@@ -14,49 +14,66 @@ export const ResultsPanel = ({
 }) => {
   if (!results) return null;
 
+  // Determine if this is from gradient descent or genetic algorithm
+  const isGradientDescent = results.algorithmType === 'gradient';
+  
+  // Get the score value and label based on algorithm
+  const scoreValue = isGradientDescent 
+    ? results.best.meanProbability 
+    : results.best.fitness;
+  
+  const scoreLabel = isGradientDescent 
+    ? 'Mean Detection Probability' 
+    : 'Fitness Score';
+
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-2 border-emerald-300 rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-            <div className="text-xs font-bold text-emerald-700 uppercase tracking-wide">Fitness Score</div>
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="bg-white border border-gray-200 rounded-lg p-8">
+          <div className="font-santiago text-xs text-navy-600 uppercase tracking-wide mb-3">
+            {scoreLabel}
           </div>
-          <div className="text-3xl font-black text-emerald-600">
-            {results.best.fitness.toFixed(4)}
+          <div className="font-santiago text-4xl text-navy-900">
+            {scoreValue ? scoreValue.toFixed(4) : 'N/A'}
           </div>
+          {isGradientDescent && (
+            <p className="font-bogota text-xs text-navy-500 mt-2">
+              Average probability of detecting signals across the region
+            </p>
+          )}
         </div>
         
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-300 rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-            <div className="text-xs font-bold text-blue-700 uppercase tracking-wide">Array Configuration</div>
+        <div className="bg-white border border-gray-200 rounded-lg p-8">
+          <div className="font-santiago text-xs text-navy-600 uppercase tracking-wide mb-3">
+            Array Configuration
           </div>
-          <div className="text-3xl font-black text-blue-600">
+          <div className="font-santiago text-4xl text-navy-900">
             {results.best.xs.length} mics
           </div>
+          <p className="font-bogota text-xs text-navy-500 mt-2">
+            Optimized using {isGradientDescent ? 'gradient descent' : 'genetic algorithm'}
+          </p>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl p-6 border-2 border-stone-200 shadow-lg">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-bold text-stone-800 flex items-center gap-2">
-            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+      <div className="bg-white rounded-lg p-8 border border-gray-200">
+        <div className="flex items-center justify-between mb-8">
+          <h3 className="font-santiago text-xl text-navy-900">
             Coordinates (km)
           </h3>
-          <div className="flex gap-2">
+          <div className="flex gap-3">
             {editMode ? (
               <>
                 <button
                   onClick={() => setEditMode(false)}
-                  className="px-4 py-2 bg-stone-200 hover:bg-stone-300 text-stone-700 rounded-lg transition-colors font-semibold text-sm border border-stone-300"
+                  className="px-5 py-2.5 bg-white hover:bg-cream-50 text-navy-700 rounded-md transition-colors font-bogota font-medium text-sm border border-gray-300"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={onReoptimize}
                   disabled={isRunning}
-                  className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-stone-300 disabled:to-stone-400 text-white rounded-lg transition-all font-semibold text-sm flex items-center gap-2 shadow-md hover:shadow-lg"
+                  className="px-5 py-2.5 bg-navy-700 hover:bg-navy-800 disabled:bg-gray-300 text-cream-50 rounded-md transition-all font-bogota font-medium text-sm flex items-center gap-2 shadow-sm hover:shadow-md disabled:shadow-none"
                 >
                   <RotateCcw className="w-4 h-4" />
                   Re-optimize
@@ -65,7 +82,7 @@ export const ResultsPanel = ({
             ) : (
               <button
                 onClick={() => setEditMode(true)}
-                className="px-4 py-2 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white rounded-lg transition-all font-semibold text-sm flex items-center gap-2 shadow-md hover:shadow-lg"
+                className="px-5 py-2.5 bg-navy-600 hover:bg-navy-700 text-cream-50 rounded-md transition-all font-bogota font-medium text-sm flex items-center gap-2 shadow-sm hover:shadow-md"
               >
                 <Edit2 className="w-4 h-4" />
                 Edit Coordinates
@@ -74,42 +91,42 @@ export const ResultsPanel = ({
           </div>
         </div>
 
-        <div className="max-h-80 overflow-y-auto pr-2 space-y-2.5">
+        <div className="max-h-80 overflow-y-auto space-y-3">
           {results.best.xs.map((x, i) => (
             <div 
               key={i} 
-              className="bg-gradient-to-r from-stone-50 to-stone-100 rounded-xl p-4 flex items-center gap-4 hover:shadow-md transition-all border-2 border-stone-200 hover:border-blue-300"
+              className="bg-cream-50 rounded-md p-5 flex items-center gap-4 hover:bg-cream-100 transition-all border border-gray-200"
             >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-sm font-black flex-shrink-0 text-white shadow-lg">
+              <div className="w-12 h-12 rounded-md bg-navy-700 flex items-center justify-center font-bogota text-base font-bold flex-shrink-0 text-cream-50">
                 {i + 1}
               </div>
               
               {editMode ? (
-                <div className="flex gap-3 flex-1">
+                <div className="flex gap-4 flex-1">
                   <div className="flex-1">
-                    <label className="text-xs font-bold text-stone-600 mb-1.5 block">X Coordinate</label>
+                    <label className="font-bogota text-xs text-navy-600 mb-2 block">X Coordinate</label>
                     <input
                       type="number"
                       step="0.01"
                       value={x.toFixed(2)}
                       onChange={(e) => onCoordinateChange(i, 'x', e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm font-mono border-2 border-stone-300 rounded-lg focus:border-blue-500 focus:outline-none bg-white font-semibold"
+                      className="w-full px-3 py-2.5 font-bogota text-sm font-mono border border-gray-300 rounded-md focus:border-navy-500 focus:ring-2 focus:ring-navy-200 focus:outline-none bg-white"
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="text-xs font-bold text-stone-600 mb-1.5 block">Y Coordinate</label>
+                    <label className="font-bogota text-xs text-navy-600 mb-2 block">Y Coordinate</label>
                     <input
                       type="number"
                       step="0.01"
                       value={results.best.ys[i].toFixed(2)}
                       onChange={(e) => onCoordinateChange(i, 'y', e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm font-mono border-2 border-stone-300 rounded-lg focus:border-blue-500 focus:outline-none bg-white font-semibold"
+                      className="w-full px-3 py-2.5 font-bogota text-sm font-mono border border-gray-300 rounded-md focus:border-navy-500 focus:ring-2 focus:ring-navy-200 focus:outline-none bg-white"
                     />
                   </div>
                 </div>
               ) : (
                 <div className="flex-1">
-                  <span className="font-mono text-lg font-bold text-stone-700">
+                  <span className="font-mono text-lg font-semibold text-navy-800">
                     ({x.toFixed(2)}, {results.best.ys[i].toFixed(2)})
                   </span>
                 </div>

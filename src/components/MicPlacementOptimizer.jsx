@@ -1,7 +1,7 @@
 // components/MicPlacementOptimizer.jsx
 
 import React, { useState } from 'react';
-import { Target, Plus } from 'lucide-react';
+import { Target } from 'lucide-react';
 import { RegionSetup } from './RegionSetup';
 import { ConfigurationPanel } from './ConfigurationPanel';
 import { ManualCoordinateInput } from './ManualCoordinateInput';
@@ -10,6 +10,7 @@ import { ResultsPanel } from './ResultsPanel';
 import { ConvergenceChart } from './ConvergenceChart';
 import { handleImageUpload } from '../utils/imageProcessing';
 import { runOptimization } from '../utils/geneticAlgorithm';
+import { runGradientDescent } from '../utils/gradientDescent';
 import { createDefaultSemicircleMask } from '../utils/maskOperations';
 import { DEFAULT_PARAMS } from '../constants/defaultParams';
 
@@ -34,7 +35,12 @@ const MicPlacementOptimizer = () => {
     const activeMask = useDefaultSemicircle 
       ? createDefaultSemicircleMask(params.radius) 
       : mask;
-    runOptimization(params, activeMask, setProgress, setResults, setIsRunning);
+    
+    if (params.optimizationMethod === 'gradient') {
+      runGradientDescent(params, activeMask, setProgress, setResults, setIsRunning);
+    } else {
+      runOptimization(params, activeMask, setProgress, setResults, setIsRunning);
+    }
     setEditMode(false);
   };
 
@@ -57,7 +63,12 @@ const MicPlacementOptimizer = () => {
     const activeMask = useDefaultSemicircle 
       ? createDefaultSemicircleMask(params.radius) 
       : mask;
-    runOptimization(params, activeMask, setProgress, setResults, setIsRunning, currentCoords);
+    
+    if (params.optimizationMethod === 'gradient') {
+      runGradientDescent(params, activeMask, setProgress, setResults, setIsRunning, currentCoords);
+    } else {
+      runOptimization(params, activeMask, setProgress, setResults, setIsRunning, currentCoords);
+    }
     setEditMode(false);
   };
 
@@ -69,35 +80,39 @@ const MicPlacementOptimizer = () => {
     const activeMask = useDefaultSemicircle 
       ? createDefaultSemicircleMask(params.radius) 
       : mask;
-    runOptimization(params, activeMask, setProgress, setResults, setIsRunning, manualCoordinates);
+    
+    if (params.optimizationMethod === 'gradient') {
+      runGradientDescent(params, activeMask, setProgress, setResults, setIsRunning, manualCoordinates);
+    } else {
+      runOptimization(params, activeMask, setProgress, setResults, setIsRunning, manualCoordinates);
+    }
     setShowManualInput(false);
   };
 
   return (
-    <div className="w-full min-h-screen bg-gradient-to-br from-stone-50 via-amber-50 to-stone-100 p-4 sm:p-8">
+    <div className="w-full min-h-screen bg-cream-50 p-8 sm:p-12">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-10">
-          <div className="flex items-center justify-center gap-4 mb-4">
-            <div className="p-3 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl shadow-xl">
-              <Target className="w-12 h-12 text-white" />
-            </div>
-            <h1 className="text-5xl sm:text-6xl font-black text-stone-800 tracking-tight">
+        <div className="text-center mb-16">
+          <div className="flex items-center justify-center gap-5 mb-6">
+            <h1 className="font-santiago text-6xl text-navy-900">
               Acoustic Array Optimizer
             </h1>
           </div>
-          <p className="text-lg text-stone-600 font-medium">
-            Genetic algorithm-based microphone placement optimization
+          <p className="font-bogota text-lg text-navy-600">
+            Optimize microphone placement using genetic algorithms or gradient descent
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
           {/* Left Column - Controls */}
-          <div className="space-y-6">
+          <div className="space-y-8">
             <RegionSetup
               useDefaultSemicircle={useDefaultSemicircle}
               setUseDefaultSemicircle={setUseDefaultSemicircle}
               onImageUpload={onImageUpload}
+              params={params}         // ← ADD THIS
+              setParams={setParams} 
             />
 
             <ConfigurationPanel
@@ -114,9 +129,8 @@ const MicPlacementOptimizer = () => {
             {/* Manual Input Toggle Button */}
             <button
               onClick={() => setShowManualInput(!showManualInput)}
-              className="w-full bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white rounded-xl py-4 font-bold text-base flex items-center justify-center gap-3 transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 border-2 border-amber-600"
+              className="w-full bg-navy-600 hover:bg-navy-700 text-cream-50 rounded-md py-4 font-bogota font-medium text-sm flex items-center justify-center gap-3 transition-all shadow-sm hover:shadow-md"
             >
-              <Plus className="w-5 h-5" />
               {showManualInput ? 'Hide Manual Input' : 'Manual Coordinates'}
             </button>
 
@@ -131,7 +145,7 @@ const MicPlacementOptimizer = () => {
           </div>
 
           {/* Right Column - Visualization & Results */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-8">
             <VisualizationCanvas
               results={results}
               params={params}

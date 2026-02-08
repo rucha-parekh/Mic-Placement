@@ -1,0 +1,240 @@
+// components/ScaleGuideDownload.jsx
+import React from 'react';
+import { Download, BookOpen } from 'lucide-react';
+
+export const ScaleGuideDownload = () => {
+  const downloadScaleGuide = () => {
+    const guideContent = `
+ACOUSTIC ARRAY OPTIMIZER - SCALE & AREA GUIDE
+==============================================
+
+UNDERSTANDING REGION SCALE
+--------------------------
+
+Default Semicircle Region:
+• Radius: 30 km (adjustable)
+• Width: 60 km (2 × radius)
+• Height: 30 km (= radius)
+• Coverage Area: ~1,413 km²
+• Canvas Resolution: 800×400 pixels
+• Scale: 1 pixel = 75 meters
+
+
+CUSTOM IMAGE REGIONS
+--------------------
+
+When uploading your own region image, you must specify:
+
+1. Image Width (km) - Real-world width of your region
+2. Image Height (km) - Real-world height of your region
+
+The system will automatically calculate:
+• Coverage area in km²
+• Pixel-to-meter conversion scale
+
+
+EXAMPLES
+--------
+
+Example 1: Small Harbor (2km × 2km)
+------------------------------------
+Settings:
+  - Upload: 500×500 pixel white square image
+  - Image Width: 2 km
+  - Image Height: 2 km
+
+Result:
+  - Coverage Area: 4 km²
+  - Scale: 1 pixel = 4 meters
+  - Use Case: Dense monitoring of small area
+
+
+Example 2: Coastal Region (50km × 10km)
+----------------------------------------
+Settings:
+  - Upload: Coastline outline image
+  - Image Width: 50 km
+  - Image Height: 10 km
+
+Result:
+  - Coverage Area: 500 km²
+  - Scale: 1 pixel = 62.5 meters
+  - Use Case: Linear coastal monitoring
+
+
+Example 3: Large Ocean Area (100km × 100km)
+-------------------------------------------
+Settings:
+  - Upload: Custom region shape
+  - Image Width: 100 km
+  - Image Height: 100 km
+
+Result:
+  - Coverage Area: 10,000 km²
+  - Scale: 1 pixel = 125 meters
+  - Use Case: Wide-area ocean monitoring
+
+
+DETECTION RANGE GUIDELINES
+---------------------------
+
+Match your detection range to region size:
+
+Region Size         Suggested Detection Range
+-----------         -------------------------
+< 10 km             3-5 km
+10-30 km            5-10 km (default)
+30-60 km            10-15 km
+60-100 km           15-20 km
+> 100 km            20-30 km
+
+Rule of thumb: Detection range should be 20-30% of your 
+region's smallest dimension.
+
+
+COORDINATE SYSTEM
+-----------------
+
+Canvas Coordinates (pixels):
+  - Origin: Top-left corner (0, 0)
+  - X: 0 to 800 pixels (left to right)
+  - Y: 0 to 400 pixels (top to bottom)
+
+Physical Coordinates (kilometers):
+  Semicircle Mode:
+    - X: -30 to +30 km (centered)
+    - Y: 0 to 30 km (bottom to top)
+  
+  Custom Image Mode:
+    - X: 0 to imageWidthKm
+    - Y: 0 to imageHeightKm
+
+
+IMAGE PREPARATION
+-----------------
+
+For best results when uploading custom regions:
+
+1. Format: PNG, JPG, or any common image format
+2. Color coding:
+   • White pixels = Valid placement zones
+   • Black pixels = No-go zones (excluded)
+
+3. Resolution: Any size works, will be scaled to 800×400
+4. Recommended: Keep aspect ratio similar to your real region
+
+
+SCALE CONVERSION FORMULAS
+--------------------------
+
+Semicircle Mode:
+  pixelX = ((physicalX + radius) / (2 × radius)) × 800
+  pixelY = ((radius - physicalY) / radius) × 400
+
+Custom Image Mode:
+  pixelX = (physicalX / imageWidthKm) × 800
+  pixelY = (physicalY / imageHeightKm) × 400
+
+
+FREQUENTLY ASKED QUESTIONS
+---------------------------
+
+Q: What if I don't know the exact size of my region?
+A: Make a reasonable estimate based on your application:
+   - Small harbor: ~2-5 km
+   - City area: ~10-30 km
+   - Coastal region: ~50-100 km
+   - Ocean monitoring: ~100-500 km
+
+Q: Can I change the scale after optimization?
+A: You can, but you'll need to re-run the optimization. The
+   microphone positions are calculated based on your scale
+   settings.
+
+Q: Does detection range scale automatically?
+A: No. Detection range is independent. If you double the
+   region size, consider doubling the detection range too.
+
+Q: Why is the default semicircle 30 km radius?
+A: This is a practical scale for acoustic monitoring (marine
+   mammals, underwater sounds, etc.). Large enough to be
+   useful, small enough to be computationally efficient.
+
+
+ALGORITHM SELECTION
+-------------------
+
+Genetic Algorithm:
+  - Best for: Global optimization, exploring solutions
+  - Metric: Fitness Score
+  - Speed: Moderate (100-500 generations)
+
+Gradient Descent:
+  - Best for: Refining known solutions, local optimization
+  - Metric: Mean Detection Probability
+  - Speed: Fast (100-2000 steps)
+
+
+TIPS FOR BEST RESULTS
+----------------------
+
+1. Match detection range to your region size
+2. Use more microphones for larger areas
+3. Consider no-go zones (obstacles, restricted areas)
+4. Start with genetic algorithm for exploration
+5. Use gradient descent to fine-tune solutions
+6. Verify scale settings match your real-world needs
+
+
+SUPPORT
+-------
+
+For more information or assistance:
+- Check the in-app tooltips and descriptions
+- Review parameter explanations in Advanced Settings
+- Experiment with different configurations
+
+Generated by Acoustic Array Optimizer
+${new Date().toLocaleDateString()}
+`;
+
+    // Create blob and download
+    const blob = new Blob([guideContent], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Acoustic_Array_Optimizer_Scale_Guide.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="bg-cream-100 border border-cream-400 rounded-lg p-5">
+      <div className="flex items-start gap-4">
+        <div className="flex-shrink-0">
+          <div className="w-10 h-10 bg-navy-700 rounded-lg flex items-center justify-center">
+            <BookOpen className="w-5 h-5 text-cream-50" />
+          </div>
+        </div>
+        <div className="flex-1">
+          <h3 className="font-santiago text-sm text-navy-900 mb-2">
+            Need Help with Scaling?
+          </h3>
+          <p className="font-bogota text-xs text-navy-700 mb-4">
+            Download the complete guide to understand region scales, coordinate systems, 
+            and how to set up your custom monitoring areas.
+          </p>
+          <button
+            onClick={downloadScaleGuide}
+            className="bg-navy-700 hover:bg-navy-800 text-cream-50 rounded-md px-4 py-2.5 font-bogota text-sm font-medium transition-all flex items-center gap-2 shadow-sm hover:shadow-md"
+          >
+            <Download className="w-4 h-4" />
+            Download Scale Guide
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
