@@ -1,4 +1,4 @@
-// utils/gradientDescent.js
+// utils/gradientDescent.js - COMPLETE FILE WITH VISUALIZATION DATA
 
 export async function runGradientDescent(params, mask, setProgress, setResults, setIsRunning, initialCoords = null) {
   setIsRunning(true);
@@ -297,6 +297,11 @@ export async function runGradientDescent(params, mask, setProgress, setResults, 
   // Final progress update
   setProgress(100);
 
+  // ============================================
+  // CALCULATE FINAL PROBABILITY MAP FOR VISUALIZATION
+  // ============================================
+  const finalP = computePGe3(computeProbabilities(recPositions));
+
   // Small delay before setting results to ensure UI is ready
   await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -316,8 +321,7 @@ export async function runGradientDescent(params, mask, setProgress, setResults, 
     console.log('Gradient Descent Complete:', {
       numPositions: recPositions.length,
       meanProbability: scores[scores.length - 1],
-      xs: xs.slice(0, 3),
-      ys: ys.slice(0, 3)
+      hasProbabilityMap: true
     });
 
     setResults({
@@ -327,7 +331,15 @@ export async function runGradientDescent(params, mask, setProgress, setResults, 
         meanProbability: scores[scores.length - 1]  // Not "fitness" - this is mean detection probability
       },
       scores,
-      algorithmType: 'gradient'  // Flag to identify this is from gradient descent
+      algorithmType: 'gradient',  // Flag to identify this is from gradient descent
+      // ============================================
+      // ADD THESE FOR COLORED VISUALIZATION:
+      // ============================================
+      probabilityMap: finalP,      // The 2D probability grid
+      gridX: gridX,                // X coordinates of grid points
+      gridY: gridY,                // Y coordinates of grid points
+      physicalPositions: recPositions,  // Original positions in [-RADIUS, RADIUS] space
+      radius: RADIUS               // The radius value for coordinate conversion
     });
   } catch (error) {
     console.error('Error setting gradient descent results:', error);

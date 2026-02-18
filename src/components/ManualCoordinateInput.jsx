@@ -48,17 +48,18 @@ export const ManualCoordinateInput = ({
                 <div className="flex-1">
                   <label className="font-bogota text-xs text-navy-600 mb-1.5 block">X (km)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode='decimal'
                     value={coord.x}
                     onChange={(e) => handleCoordinateChange(i, 'x', e.target.value)}
-                    step="0.1"
                     className="w-full px-3 py-2 font-bogota text-sm border border-gray-300 rounded-md focus:border-navy-500 focus:ring-2 focus:ring-navy-200 focus:outline-none bg-white"
                   />
                 </div>
                 <div className="flex-1">
                   <label className="font-bogota text-xs text-navy-600 mb-1.5 block">Y (km)</label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode='decimal'
                     value={coord.y}
                     onChange={(e) => handleCoordinateChange(i, 'y', e.target.value)}
                     step="0.1"
