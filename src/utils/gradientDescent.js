@@ -19,23 +19,19 @@ export async function runGradientDescent(
   const R = params.numRecorders;
   const minDist = params.minDist;
   const closePenaltyFraction = params.closePenaltyFraction * 100;
-  const emptyPenaltyFraction = params.emptyPenaltyFraction * 10;
-  const minProbThreshold = 0.05;
 
   // Grid in physical km space
-  const gridSizeX = 200;
-  const gridSizeY = 120;
+  const gridSizeX = 120;
+  const gridSizeY = 80;
   const gridX = Array.from({ length: gridSizeX }, (_, i) => -RADIUS + (2 * RADIUS * i) / (gridSizeX - 1));
   const gridY = Array.from({ length: gridSizeY }, (_, i) => (RADIUS * i) / (gridSizeY - 1));
 
-  // Mask validity: respects any mask (custom shape or default semicircle)
   function isValidPoint(x, y) {
     return isInMask(x, y, mask);
   }
 
-  // Initialise positions inside the mask — all in physical km space
+  // Initialise positions inside the mask
   let recPositions = [];
-
   if (initialCoords && initialCoords.length > 0) {
     recPositions = initialCoords.map(c => [c.x, c.y]);
     let attempts = 0;
@@ -55,11 +51,11 @@ export async function runGradientDescent(
 
   const scores = [];
 
+  // Per-recorder detection probs at every grid point
   function computeProbabilities(recPos) {
     return Array.from({ length: gridSizeY }, (_, yi) =>
       Array.from({ length: gridSizeX }, (_, xi) => {
-        const gx = gridX[xi];
-        const gy = gridY[yi];
+        const gx = gridX[xi], gy = gridY[yi];
         return recPos.map(([rx, ry]) => {
           const dist2 = (gx - rx) ** 2 + (gy - ry) ** 2;
           return Math.exp(-dist2 / (2 * sigma * sigma));
@@ -68,10 +64,9 @@ export async function runGradientDescent(
     );
   }
 
-  function computePGe3(p) {
-    const Ny = p.length;
-    const Nx = p[0].length;
-    const numR = p[0][0].length;
+  // P(>=4 units) at each valid grid point — matches Python's four_plus
+  function computePGe4(p) {
+    const Ny = p.length, Nx = p[0].length, numR = p[0][0].length;
     const P = Array.from({ length: Ny }, () => new Float64Array(Nx));
     for (let yi = 0; yi < Ny; yi++) {
       for (let xi = 0; xi < Nx; xi++) {
@@ -93,25 +88,117 @@ export async function runGradientDescent(
             P2 += prod;
           }
         }
-        P[yi][xi] = 1 - P0 - P1 - P2;
+        if (numR < 4) { P[yi][xi] = 1 - P0 - P1 - P2; continue; } // P(>=3) fallback
+        let P3 = 0;
+        for (let i = 0; i < numR; i++) {
+          for (let j = i + 1; j < numR; j++) {
+            for (let k = j + 1; k < numR; k++) {
+              let prod = probs[i] * probs[j] * probs[k];
+              for (let m = 0; m < numR; m++) { if (m!==i&&m!==j&&m!==k) prod *= 1-probs[m]; }
+              P3 += prod;
+            }
+          }
+        }
+        P[yi][xi] = 1 - P0 - P1 - P2 - P3;
       }
     }
     return P;
+  }
+
+  // Gradient of P(>=4) w.r.t. recorder `a` position — derived analytically
+  function gradientForRecorder(a, recPos, p) {
+    const Ny = p.length, Nx = p[0].length, numR = recPos.length;
+    let dPx = 0, dPy = 0;
+    for (let yi = 0; yi < Ny; yi++) {
+      for (let xi = 0; xi < Nx; xi++) {
+        if (!isValidPoint(gridX[xi], gridY[yi])) continue;
+        const gx = gridX[xi], gy = gridY[yi];
+        const probs = p[yi][xi];
+        const pa = probs[a];
+        const dx = gx - recPos[a][0], dy = gy - recPos[a][1];
+        const dpax = (dx / (sigma * sigma)) * pa;
+        const dpay = (dy / (sigma * sigma)) * pa;
+
+        let P0_pref = 1;
+        for (let i = 0; i < numR; i++) { if (i !== a) P0_pref *= 1 - probs[i]; }
+
+        let P1_term2 = 0;
+        for (let i = 0; i < numR; i++) {
+          if (i === a) continue;
+          let prod = probs[i];
+          for (let j = 0; j < numR; j++) { if (j !== i && j !== a) prod *= 1 - probs[j]; }
+          P1_term2 += prod;
+        }
+
+        let P2_term1 = 0;
+        for (let j = 0; j < numR; j++) {
+          if (j === a) continue;
+          let prod = probs[j];
+          for (let k = 0; k < numR; k++) { if (k !== a && k !== j) prod *= 1 - probs[k]; }
+          P2_term1 += prod;
+        }
+        let P2_term2 = 0;
+        for (let i = 0; i < numR; i++) {
+          if (i === a) continue;
+          for (let j = i + 1; j < numR; j++) {
+            if (j === a) continue;
+            let prod = probs[i] * probs[j];
+            for (let k = 0; k < numR; k++) { if (k!==i&&k!==j&&k!==a) prod *= 1-probs[k]; }
+            P2_term2 += prod;
+          }
+        }
+
+        // For P(>=4) we need P3 gradient terms
+        let P3_term1 = 0;
+        for (let i = 0; i < numR; i++) {
+          if (i === a) continue;
+          for (let j = i + 1; j < numR; j++) {
+            if (j === a) continue;
+            let prod = probs[i] * probs[j];
+            for (let k = 0; k < numR; k++) { if (k!==i&&k!==j&&k!==a) prod *= 1-probs[k]; }
+            P3_term1 += prod;
+          }
+        }
+        let P3_term2 = 0;
+        for (let i = 0; i < numR; i++) {
+          if (i === a) continue;
+          for (let j = i + 1; j < numR; j++) {
+            if (j === a) continue;
+            for (let k = j + 1; k < numR; k++) {
+              if (k === a) continue;
+              let prod = probs[i] * probs[j] * probs[k];
+              for (let m = 0; m < numR; m++) { if (m!==i&&m!==j&&m!==k&&m!==a) prod *= 1-probs[m]; }
+              P3_term2 += prod;
+            }
+          }
+        }
+
+        const dP0x = -(dpax * P0_pref), dP0y = -(dpay * P0_pref);
+        const dP1x = dpax * P0_pref - dpax * P1_term2;
+        const dP1y = dpay * P0_pref - dpay * P1_term2;
+        const dP2x = dpax * P2_term1 - dpax * P2_term2;
+        const dP2y = dpay * P2_term1 - dpay * P2_term2;
+        const dP3x = dpax * P3_term1 - dpax * P3_term2;
+        const dP3y = dpay * P3_term1 - dpay * P3_term2;
+
+        // d/da [P(>=4)] = -(dP0 + dP1 + dP2 + dP3)
+        dPx += -(dP0x + dP1x + dP2x + dP3x);
+        dPy += -(dP0y + dP1y + dP2y + dP3y);
+      }
+    }
+    return [dPx, dPy];
   }
 
   function calculateClosePenalty(recPos) {
     const gradients = recPos.map(() => [0, 0]);
     for (let i = 0; i < recPos.length; i++) {
       for (let j = i + 1; j < recPos.length; j++) {
-        const dx = recPos[i][0] - recPos[j][0];
-        const dy = recPos[i][1] - recPos[j][1];
+        const dx = recPos[i][0] - recPos[j][0], dy = recPos[i][1] - recPos[j][1];
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < minDist && dist > 0) {
           const gradMag = -2 * closePenaltyFraction * (minDist - dist) / dist;
-          gradients[i][0] += gradMag * dx;
-          gradients[i][1] += gradMag * dy;
-          gradients[j][0] -= gradMag * dx;
-          gradients[j][1] -= gradMag * dy;
+          gradients[i][0] += gradMag * dx; gradients[i][1] += gradMag * dy;
+          gradients[j][0] -= gradMag * dx; gradients[j][1] -= gradMag * dy;
         }
       }
     }
@@ -126,72 +213,21 @@ export async function runGradientDescent(
     return [fb.x, fb.y];
   }
 
-  function gradientForRecorder(a, recPos, p) {
-    const Ny = p.length;
-    const Nx = p[0].length;
-    const numR = recPos.length;
-    let dPx = 0, dPy = 0;
-    for (let yi = 0; yi < Ny; yi++) {
-      for (let xi = 0; xi < Nx; xi++) {
-        if (!isValidPoint(gridX[xi], gridY[yi])) continue;
-        const gx = gridX[xi];
-        const gy = gridY[yi];
-        const probs = p[yi][xi];
-        const pa = probs[a];
-        const dx = gx - recPos[a][0];
-        const dy = gy - recPos[a][1];
-        const dpax = (dx / (sigma * sigma)) * pa;
-        const dpay = (dy / (sigma * sigma)) * pa;
-        let P0_pref = 1;
-        for (let i = 0; i < numR; i++) { if (i !== a) P0_pref *= 1 - probs[i]; }
-        let P1_term2 = 0;
-        for (let i = 0; i < numR; i++) {
-          if (i === a) continue;
-          let prod = probs[i];
-          for (let j = 0; j < numR; j++) { if (j !== i && j !== a) prod *= 1 - probs[j]; }
-          P1_term2 += prod;
-        }
-        let P2_term1 = 0;
-        for (let j = 0; j < numR; j++) {
-          if (j === a) continue;
-          let prod = probs[j];
-          for (let k = 0; k < numR; k++) { if (k !== a && k !== j) prod *= 1 - probs[k]; }
-          P2_term1 += prod;
-        }
-        let P2_term2 = 0;
-        for (let i = 0; i < numR; i++) {
-          if (i === a) continue;
-          for (let j = i + 1; j < numR; j++) {
-            if (j === a) continue;
-            let prod = probs[i] * probs[j];
-            for (let k = 0; k < numR; k++) {
-              if (k !== i && k !== j && k !== a) prod *= 1 - probs[k];
-            }
-            P2_term2 += prod;
-          }
-        }
-        dPx += -(-(dpax * P0_pref) + dpax * P0_pref - dpax * P1_term2 + dpax * P2_term1 - dpax * P2_term2);
-        dPy += -(-(dpay * P0_pref) + dpay * P0_pref - dpay * P1_term2 + dpay * P2_term1 - dpay * P2_term2);
-      }
-    }
-    return [dPx, dPy];
-  }
-
-  // Main optimisation loop
+  // Main optimisation loop — maximises mean P(>=4) inside mask
   for (let step = 0; step < steps; step++) {
     if (step % 10 === 0) {
       await new Promise(resolve => setTimeout(resolve, 0));
       setProgress(((step + 1) / steps) * 100);
     }
     const p = computeProbabilities(recPositions);
-    const P = computePGe3(p);
+    const P = computePGe4(p);
+
     let sumP = 0, count = 0;
-    for (let yi = 0; yi < P.length; yi++) {
-      for (let xi = 0; xi < P[0].length; xi++) {
+    for (let yi = 0; yi < P.length; yi++)
+      for (let xi = 0; xi < P[0].length; xi++)
         if (isValidPoint(gridX[xi], gridY[yi])) { sumP += P[yi][xi]; count++; }
-      }
-    }
     scores.push(count > 0 ? sumP / count : 0);
+
     const { gradients: closePenaltyGrad } = calculateClosePenalty(recPositions);
     for (let i = 0; i < R; i++) {
       const [gx, gy] = gradientForRecorder(i, recPositions, p);
@@ -203,30 +239,41 @@ export async function runGradientDescent(
 
   setProgress(100);
 
-  // Final probability map (P >= 1 unit) for visualisation — mask-aware
-  const finalProbabilityMap = Array.from({ length: gridSizeY }, (_, yi) =>
-    Array.from({ length: gridSizeX }, (_, xi) => {
-      if (!isValidPoint(gridX[xi], gridY[yi])) return 0;
-      let noDetProb = 1;
-      for (const [rx, ry] of recPositions) {
-        const dist2 = (gridX[xi] - rx) ** 2 + (gridY[yi] - ry) ** 2;
-        noDetProb *= 1 - Math.exp(-dist2 / (2 * sigma * sigma));
+  // Final visualisation map — P(>=4), vmax=1, matches Python display exactly
+  const vizNx = 200, vizNy = 120;
+  const pgX = Array.from({ length: vizNx }, (_, i) => -RADIUS + (2 * RADIUS * i) / (vizNx - 1));
+  const pgY = Array.from({ length: vizNy }, (_, i) => (RADIUS * i) / (vizNy - 1));
+  const numRfinal = recPositions.length;
+
+  const finalProbabilityMap = Array.from({ length: vizNy }, (_, yi) =>
+    Array.from({ length: vizNx }, (_, xi) => {
+      if (!isValidPoint(pgX[xi], pgY[yi])) return 0;
+      const probs = recPositions.map(([rx, ry]) => {
+        const dist2 = (pgX[xi] - rx) ** 2 + (pgY[yi] - ry) ** 2;
+        return Math.exp(-dist2 / (2 * sigma * sigma));
+      });
+      let P0 = 1; for (let i = 0; i < numRfinal; i++) P0 *= 1 - probs[i];
+      let P1 = 0; for (let i = 0; i < numRfinal; i++) { let p = probs[i]; for (let j = 0; j < numRfinal; j++) { if (j!==i) p *= 1-probs[j]; } P1 += p; }
+      let P2 = 0; for (let i = 0; i < numRfinal; i++) for (let j=i+1; j<numRfinal; j++) { let p=probs[i]*probs[j]; for(let k=0;k<numRfinal;k++){if(k!==i&&k!==j)p*=1-probs[k];} P2+=p; }
+      if (numRfinal < 4) return 1 - P0 - P1 - P2;
+      let P3 = 0;
+      for (let i=0;i<numRfinal;i++) for(let j=i+1;j<numRfinal;j++) for(let k=j+1;k<numRfinal;k++) {
+        let p=probs[i]*probs[j]*probs[k];
+        for(let m=0;m<numRfinal;m++){if(m!==i&&m!==j&&m!==k)p*=1-probs[m];}
+        P3+=p;
       }
-      return 1 - noDetProb;
+      return 1 - P0 - P1 - P2 - P3;
     })
   );
 
-  let sumFinal = 0, countFinal = 0;
-  for (let yi = 0; yi < gridSizeY; yi++) {
-    for (let xi = 0; xi < gridSizeX; xi++) {
-      if (finalProbabilityMap[yi][xi] > 0) { sumFinal += finalProbabilityMap[yi][xi]; countFinal++; }
-    }
-  }
-  const meanProbability = countFinal > 0 ? sumFinal / countFinal : 0;
+  let sumF = 0, cntF = 0;
+  for (let yi = 0; yi < vizNy; yi++)
+    for (let xi = 0; xi < vizNx; xi++)
+      if (finalProbabilityMap[yi][xi] > 0) { sumF += finalProbabilityMap[yi][xi]; cntF++; }
+  const meanProbability = cntF > 0 ? sumF / cntF : 0;
 
   await new Promise(resolve => setTimeout(resolve, 100));
 
-  // Store results — xs/ys are PHYSICAL KM COORDINATES (same format as genetic)
   setResults({
     best: {
       xs: recPositions.map(p => p[0]),
@@ -237,11 +284,11 @@ export async function runGradientDescent(
     scores,
     algorithmType: 'gradient',
     probabilityMap: finalProbabilityMap,
-    gridX,
-    gridY,
+    gridX: pgX,
+    gridY: pgY,
     physicalPositions: recPositions.map(p => [p[0], p[1]]),
     radius: RADIUS,
-    minUnits: 3,
+    minUnits: numRfinal >= 4 ? 4 : 3,
     vmax: 1,
   });
 
