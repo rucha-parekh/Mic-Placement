@@ -1,7 +1,7 @@
 import React from 'react';
 import { Plus, Trash2, Play } from 'lucide-react';
 
-export const manualCoordinateInput = ({ 
+export const ManualCoordinateInput = ({ 
   manualCoordinates, 
   setManualCoordinates,
   isRunning,
