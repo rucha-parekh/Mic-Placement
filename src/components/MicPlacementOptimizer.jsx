@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Target } from 'lucide-react';
 import { RegionSetup } from './RegionSetup';
 import { ConfigurationPanel } from './ConfigurationPanel';
-import { ManualCoordinateInput} from './manualCoordinateInput';
+import { ManualCoordinateInput} from './ManualCoordinateInput';
 import { VisualizationCanvas } from './VisualizationCanvas';
 import { ResultsPanel } from './ResultsPanel';
 import { ConvergenceChart } from './ConvergenceChart';
