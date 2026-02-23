@@ -21,7 +21,8 @@ const MicPlacementOptimizer = () => {
     emptyPenaltyFraction: 0.3,
     closePenaltyFraction: 0.2,
     minDist: 3.0,
-    alphaCurve: 'linear'
+    alphaCurve: 'linear',
+    optimizationAlgo : 'genetic',
   });
 
   const canvasRef = useRef(null);

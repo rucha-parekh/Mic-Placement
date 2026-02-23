@@ -46,16 +46,37 @@ const MicPlacementOptimizer = () => {
 
   const handleCoordinateChange = (index, axis, value) => {
     const newResults = { ...results };
-    const numValue = parseFloat(value);
+    const numValue = value;
+    if (axis === 'x') {
+      newResults.best.xs[index] = numValue;
+    } else {
+      newResults.best.ys[index] = numValue;
+    }
+    setResults(newResults);
+
+  };
+
+  const handleCoordinateBlur = (index, axis) => {
+    const newResults = { ...results };
+    const numValue = newResults.best[axis + 's'][index] == '' ? 0.00 : parseFloat(newResults.best[axis + 's'][index]);
     if (!isNaN(numValue)) {
-      if (axis === 'x') {
+       if (axis === 'x') {
         newResults.best.xs[index] = numValue;
       } else {
         newResults.best.ys[index] = numValue;
       }
       setResults(newResults);
     }
+    else{
+      if (axis === 'x') {
+        newResults.best.xs[index] = 0.00;
+      } else {
+        newResults.best.ys[index] = 0.00;
+      }
+      setResults(newResults);
+    }
   };
+
 
   const reoptimizeFromEdited = () => {
     if (!results) return;
@@ -161,6 +182,7 @@ const MicPlacementOptimizer = () => {
                 editMode={editMode}
                 setEditMode={setEditMode}
                 onCoordinateChange={handleCoordinateChange}
+                onCoordinateBlur={handleCoordinateBlur}
                 onReoptimize={reoptimizeFromEdited}
                 isRunning={isRunning}
               />
