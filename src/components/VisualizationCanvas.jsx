@@ -1,10 +1,7 @@
+// components/VisualizationCanvas.jsx
 import React, { useRef, useEffect } from 'react';
-import { createDefaultSemicircleMask } from '../utils/maskOperations';
+import { createDefaultSemicircleMask, isInMask } from '../utils/maskOperations';
 
-/**
- * Magma colormap — maps a normalised value t ∈ [0,1] to RGB.
- * Matches matplotlib 'magma'.
- */
 function magmaColor(t) {
   if (t <= 0) return 'rgb(0,0,4)';
   if (t >= 1) return 'rgb(252,253,191)';
@@ -120,43 +117,46 @@ export const VisualizationCanvas = ({ results, params, mask, useDefaultSemicircl
       ctx.fillText((idx + 1).toString(), cx, cy);
     });
 
-    // ===== COLORBAR =====
     const barW = 20;
     const barH = height * 0.55;
     const barX = width - barW - 40;
     const barY = (height - barH) / 2;
     const steps = 100;
-
     for (let i = 0; i < steps; i++) {
       const t = i / (steps - 1);
       ctx.fillStyle = magmaColor(t);
       const y = barY + barH - t * barH;
       ctx.fillRect(barX, y, barW, barH / steps + 1);
     }
-
     ctx.strokeStyle = '#fef9ed';
+    ctx.lineWidth = 1;
     ctx.strokeRect(barX, barY, barW, barH);
 
     ctx.fillStyle = '#fef9ed';
     ctx.font = 'bold 11px Inter,sans-serif';
-    ctx.fillText(vmax.toFixed(2), barX + barW + 4, barY + 5);
+    ctx.textAlign = 'left';
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = 3;
+    ctx.fillText(vmax.toFixed(2),         barX + barW + 4, barY + 5);
     ctx.fillText((vmax * 0.5).toFixed(2), barX + barW + 4, barY + barH/2 + 5);
-    ctx.fillText('0.00', barX + barW + 4, barY + barH + 5);
+    ctx.fillText('0.00',                  barX + barW + 4, barY + barH + 5);
+    ctx.shadowBlur = 0;
 
-    // ===== TITLE + METRIC (FIXED) =====
     const minUnits = data.minUnits ?? (data.algorithmType === 'gradient' ? 3 : 1);
     const label = `Detection Probability P(≥${minUnits} unit${minUnits > 1 ? 's' : ''})`;
+    const meanProb = data.best?.meanProbability ?? null;
 
+    ctx.fillStyle = '#fef9ed';
     ctx.font = 'bold 13px Inter,sans-serif';
+    ctx.textAlign = 'left';
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = 4;
     ctx.fillText(label, 12, 22);
-
-    ctx.font = '11px Inter,sans-serif';
-
-    if (data.algorithmType === 'genetic' && data.best?.fitness !== undefined) {
-      ctx.fillText(`Fitness = ${data.best.fitness.toFixed(4)}`, 12, 40);
-    } else if (data.algorithmType === 'gradient' && data.best?.meanProbability !== undefined) {
-      ctx.fillText(`Mean P = ${data.best.meanProbability.toFixed(4)}`, 12, 40);
+    if (meanProb !== null) {
+      ctx.font = '11px Inter,sans-serif';
+      ctx.fillText(`Mean P = ${meanProb.toFixed(4)}`, 12, 40);
     }
+    ctx.shadowBlur = 0;
   }
 
   function drawEmptyView(ctx, canvas, params, useDefaultSemicircle, image) {
@@ -169,7 +169,13 @@ export const VisualizationCanvas = ({ results, params, mask, useDefaultSemicircl
       ctx.fillStyle = '#e5e7eb';
       ctx.beginPath();
       ctx.arc(width/2, height, height, Math.PI, 0, false);
+      ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = '#9fb3c8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(width/2, height, height, Math.PI, 0, false);
+      ctx.stroke();
     } else if (image && imageRef.current) {
       ctx.drawImage(imageRef.current, 0, 0, width, height);
     }
@@ -181,12 +187,18 @@ export const VisualizationCanvas = ({ results, params, mask, useDefaultSemicircl
     ctx.fillText('Run optimization to see microphone placement', width/2, height/2);
   }
 
+  // Gradient → show Mean P; Genetic → show Fitness
+  const isGradient = results?.algorithmType === 'gradient';
+  const scoreLabel = isGradient ? 'Mean P' : 'Fitness';
+  const scoreValue = isGradient
+    ? results?.best?.meanProbability
+    : results?.best?.fitness;
+
   return (
     <div className="bg-white rounded-lg p-8 border border-gray-200">
       <h2 className="font-santiago text-xl mb-8 text-navy-900">
         {results ? 'Optimized Placement' : 'Region Preview'}
       </h2>
-
       <div className="relative bg-cream-50 rounded-lg overflow-hidden border border-gray-200">
         {image && !useDefaultSemicircle && (
           <img ref={imageRef} src={image} alt="Region" className="hidden" />
@@ -203,24 +215,11 @@ export const VisualizationCanvas = ({ results, params, mask, useDefaultSemicircl
       {results && (
         <div className="mt-4 p-3 bg-cream-100 rounded text-xs font-mono text-navy-700">
           <div>Microphones: {results.best?.xs?.length || 0}</div>
-
-          {results.algorithmType === 'genetic' ? (
-            <div>
-              Fitness:{' '}
-              {results.best?.fitness !== undefined
-                ? results.best.fitness.toFixed(4)
-                : 'N/A'}
-            </div>
-          ) : (
-            <div>
-              Mean P:{' '}
-              {results.best?.meanProbability !== undefined
-                ? results.best.meanProbability.toFixed(4)
-                : 'N/A'}
-            </div>
-          )}
-
-          <div>Algorithm: {results.algorithmType || 'gradient descent'}</div>
+          <div>
+            {scoreLabel}:{' '}
+            {scoreValue !== undefined ? scoreValue.toFixed(4) : 'N/A'}
+          </div>
+          <div>Algorithm: {isGradient ? 'gradient' : 'genetic'}</div>
         </div>
       )}
     </div>
