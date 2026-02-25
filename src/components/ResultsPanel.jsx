@@ -20,12 +20,12 @@ export const ResultsPanel = ({
   
   // Get the score value and label based on algorithm
   const scoreValue = isGradientDescent 
-    ? results.best.fitness 
-    : results.best.meanProbability;
+    ? results.best.meanProbability 
+    : results.best.fitness;
   
   const scoreLabel = isGradientDescent 
-    ? 'Fitness Score' 
-    : 'Mean Probability';
+    ? 'Mean Probability' 
+    : 'Fitness';
 
   return (
     <div className="space-y-6">
