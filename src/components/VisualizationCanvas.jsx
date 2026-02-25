@@ -73,13 +73,15 @@ export const VisualizationCanvas = ({ results, params, mask, useDefaultSemicircl
    */
   function drawHeatmap(ctx, canvas, data, isDefaultSemicircle) {
     const { width, height } = canvas;
-    const { probabilityMap: P, gridX, gridY, physicalPositions, radius: RADIUS } = data;
+    const { probabilityMap: P, gridX, gridY, physicalPositions } = data;
 
     // vmax: gradient descent always uses 0–1; genetic passes its own vmax for auto-scaling
     const vmax = data.vmax ?? 1;
 
-    const toCanvasX = px => ((px + RADIUS) / (2 * RADIUS)) * width;
-    const toCanvasY = py => height - (py / RADIUS) * height;
+    const xMin = gridX[0], xMax = gridX[gridX.length - 1];
+    const yMin = gridY[0], yMax = gridY[gridY.length - 1];
+    const toCanvasX = px => ((px - xMin) / (xMax - xMin)) * width;
+    const toCanvasY = py => height - ((py - yMin) / (yMax - yMin)) * height;
 
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, width, height);
@@ -237,7 +239,7 @@ export const VisualizationCanvas = ({ results, params, mask, useDefaultSemicircl
               ? results.best.meanProbability.toFixed(4)
               : 'N/A'}
           </div>
-          <div>Algorithm: {results.algorithmType || 'genetic'}</div>
+          <div>Algorithm: {results.algorithmType || 'gradient descent'}</div>
         </div>
       )}
     </div>

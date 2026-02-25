@@ -23,8 +23,8 @@ export const ResultsPanel = ({
     : results.best.fitness;
   
   const scoreLabel = isGradientDescent 
-    ? 'Mean Detection Probability' 
-    : 'Fitness Score';
+    ? 'Fitness Score' 
+    : 'Mean Probability';
 
   return (
     <div className="space-y-6">
