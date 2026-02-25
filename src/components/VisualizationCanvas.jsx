@@ -142,12 +142,9 @@ export const VisualizationCanvas = ({ results, params, mask, useDefaultSemicircl
     ctx.fillText('0.00',                  barX + barW + 4, barY + barH + 5);
     ctx.shadowBlur = 0;
 
-    const isGradientRun = data.algorithmType === 'gradient';
-    const minUnits = data.minUnits ?? (isGradientRun ? 4 : 1);
+    const minUnits = data.minUnits ?? (data.algorithmType === 'gradient' ? 3 : 1);
     const label = `Detection Probability P(≥${minUnits} unit${minUnits > 1 ? 's' : ''})`;
-    // Show right score label/value based on algorithm
-    const scoreValue = isGradientRun ? data.best?.meanProbability : data.best?.fitness;
-    const scoreLabel = isGradientRun ? 'Mean P' : 'Fitness';
+    const meanProb = data.best?.meanProbability ?? null;
 
     ctx.fillStyle = '#fef9ed';
     ctx.font = 'bold 13px Inter,sans-serif';
@@ -155,9 +152,9 @@ export const VisualizationCanvas = ({ results, params, mask, useDefaultSemicircl
     ctx.shadowColor = '#000';
     ctx.shadowBlur = 4;
     ctx.fillText(label, 12, 22);
-    if (scoreValue != null) {
+    if (meanProb !== null) {
       ctx.font = '11px Inter,sans-serif';
-      ctx.fillText(`${scoreLabel} = ${scoreValue.toFixed(4)}`, 12, 40);
+      ctx.fillText(`Mean P = ${meanProb.toFixed(4)}`, 12, 40);
     }
     ctx.shadowBlur = 0;
   }
