@@ -9,6 +9,7 @@ export const ResultsPanel = ({
   editMode,
   setEditMode,
   onCoordinateChange,
+  onCoordinateBlur,
   onReoptimize,
   isRunning
 }) => {
@@ -106,20 +107,41 @@ export const ResultsPanel = ({
                   <div className="flex-1">
                     <label className="font-bogota text-xs text-navy-600 mb-2 block">X Coordinate</label>
                     <input
-                      type="number"
-                      step="0.01"
-                      value={x.toFixed(2)}
-                      onChange={(e) => onCoordinateChange(i, 'x', e.target.value)}
+                      type="text"
+                      inputMode="decimal"
+                      value={x}
+                        onChange={(e) => {
+                          const val = e.target.value;
+
+                          // allow empty
+                          if (val === "") {
+                            onCoordinateChange(i, "x", "");
+                            return;
+                          }
+
+                          // allow valid decimal typing including trailing dot
+                          if (/^-?\d*\.?\d*$/.test(val)) {
+                            onCoordinateChange(i, "x", val);
+                          }
+                        }}
+
+                      onBlur={() => onCoordinateBlur(i, 'x')}
                       className="w-full px-3 py-2.5 font-bogota text-sm font-mono border border-gray-300 rounded-md focus:border-navy-500 focus:ring-2 focus:ring-navy-200 focus:outline-none bg-white"
                     />
                   </div>
                   <div className="flex-1">
                     <label className="font-bogota text-xs text-navy-600 mb-2 block">Y Coordinate</label>
                     <input
-                      type="number"
-                      step="0.01"
-                      value={results.best.ys[i].toFixed(2)}
-                      onChange={(e) => onCoordinateChange(i, 'y', e.target.value)}
+                      type="text"
+                      inputMode="decimal"
+                      value={results.best.ys[i]}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (/^-?\d*\.?\d*$/.test(val)) {
+                          onCoordinateChange(i, 'y', val);
+                        }
+                      }}
+                      onBlur={() => onCoordinateBlur(i, 'y')}
                       className="w-full px-3 py-2.5 font-bogota text-sm font-mono border border-gray-300 rounded-md focus:border-navy-500 focus:ring-2 focus:ring-navy-200 focus:outline-none bg-white"
                     />
                   </div>
