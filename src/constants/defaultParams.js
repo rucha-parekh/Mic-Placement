@@ -7,9 +7,9 @@ export const DEFAULT_PARAMS = {
   radius: 30,  // Default semicircle radius in km
   imageWidthKm: 60,  // Default width for uploaded images in km (2 × radius)
   imageHeightKm: 30,  // Default height for uploaded images in km (= radius)
-  popSize: 50,
+  popSize: 100,
   mutationRate: 0.3,
-  mutationStd: 2.0,
+  mutationStd: 4.0,
   emptyPenaltyFraction: 0.5,
   closePenaltyFraction: 0.5,
   minDist: 3,

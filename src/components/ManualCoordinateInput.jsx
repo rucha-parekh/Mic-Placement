@@ -1,19 +1,32 @@
+// components/ManualCoordinateInput.jsx
 import React from 'react';
-import { Plus, Trash2, Play } from 'lucide-react';
+import { Plus, Trash2, BarChart2 } from 'lucide-react';
+import { CoordinateGuide } from './CoordinateGuide';
 
 export const ManualCoordinateInput = ({ 
   manualCoordinates, 
   setManualCoordinates,
   isRunning,
-  onOptimize
+  onOptimize,
+  manualAlgorithm,
+  setManualAlgorithm,
+  params,
 }) => {
   const handleCoordinateChange = (index, axis, value) => {
     const newCoords = [...manualCoordinates];
-    const numValue = parseFloat(value);
-    if (!isNaN(numValue)) {
-      newCoords[index] = { ...newCoords[index], [axis]: numValue };
+    // Allow free typing including minus sign and trailing dot
+    if (value === '' || value === '-' || /^-?\d*\.?\d*$/.test(value)) {
+      newCoords[index] = { ...newCoords[index], [axis]: value };
       setManualCoordinates(newCoords);
     }
+  };
+
+  const handleCoordinateBlur = (index, axis) => {
+    const newCoords = [...manualCoordinates];
+    const raw = newCoords[index][axis];
+    const num = parseFloat(raw);
+    newCoords[index] = { ...newCoords[index], [axis]: isNaN(num) ? 0 : num };
+    setManualCoordinates(newCoords);
   };
 
   const addCoordinate = () => {
@@ -25,10 +38,46 @@ export const ManualCoordinateInput = ({
   };
 
   return (
+    <div className="space-y-4">
+      {/* Coordinate system guide */}
+      <CoordinateGuide params={params} />
+
     <div className="p-8 bg-cream-100 rounded-lg border border-gray-200">
       <h3 className="font-santiago text-lg text-navy-900 mb-6">
         Manual Starting Coordinates
       </h3>
+
+      {/* Algorithm selector */}
+      <div className="mb-6">
+        <label className="font-bogota text-sm text-navy-900 block mb-2">
+          Scoring Method
+        </label>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setManualAlgorithm('gradient')}
+            className={`flex-1 py-2.5 rounded-md font-bogota text-sm font-medium border transition-all ${
+              manualAlgorithm === 'gradient'
+                ? 'bg-navy-700 text-cream-50 border-navy-700 shadow-sm'
+                : 'bg-white text-navy-700 border-gray-300 hover:border-navy-400'
+            }`}
+          >
+            Gradient Descent
+          </button>
+          <button
+            onClick={() => setManualAlgorithm('genetic')}
+            className={`flex-1 py-2.5 rounded-md font-bogota text-sm font-medium border transition-all ${
+              manualAlgorithm === 'genetic'
+                ? 'bg-navy-700 text-cream-50 border-navy-700 shadow-sm'
+                : 'bg-white text-navy-700 border-gray-300 hover:border-navy-400'
+            }`}
+          >
+            Genetic
+          </button>
+        </div>
+        <p className="font-bogota text-xs text-navy-500 mt-2">
+          Mics will be placed at your coordinates exactly — this only calculates the detection score and visualizes coverage.
+        </p>
+      </div>
       
       <div className="space-y-3 max-h-64 overflow-y-auto mb-6">
         {manualCoordinates.length === 0 ? (
@@ -49,9 +98,10 @@ export const ManualCoordinateInput = ({
                   <label className="font-bogota text-xs text-navy-600 mb-1.5 block">X (km)</label>
                   <input
                     type="text"
-                    inputMode='decimal'
+                    inputMode="decimal"
                     value={coord.x}
                     onChange={(e) => handleCoordinateChange(i, 'x', e.target.value)}
+                    onBlur={() => handleCoordinateBlur(i, 'x')}
                     className="w-full px-3 py-2 font-bogota text-sm border border-gray-300 rounded-md focus:border-navy-500 focus:ring-2 focus:ring-navy-200 focus:outline-none bg-white"
                   />
                 </div>
@@ -59,10 +109,10 @@ export const ManualCoordinateInput = ({
                   <label className="font-bogota text-xs text-navy-600 mb-1.5 block">Y (km)</label>
                   <input
                     type="text"
-                    inputMode='decimal'
+                    inputMode="decimal"
                     value={coord.y}
                     onChange={(e) => handleCoordinateChange(i, 'y', e.target.value)}
-                    step="0.1"
+                    onBlur={() => handleCoordinateBlur(i, 'y')}
                     className="w-full px-3 py-2 font-bogota text-sm border border-gray-300 rounded-md focus:border-navy-500 focus:ring-2 focus:ring-navy-200 focus:outline-none bg-white"
                   />
                 </div>
@@ -91,10 +141,11 @@ export const ManualCoordinateInput = ({
           disabled={isRunning || manualCoordinates.length === 0}
           className="flex-1 bg-navy-700 hover:bg-navy-800 disabled:bg-gray-300 text-cream-50 rounded-md py-3 font-bogota text-sm font-medium transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow-md disabled:cursor-not-allowed disabled:shadow-none"
         >
-          <Play className="w-5 h-5" />
-          Optimize
+          <BarChart2 className="w-5 h-5" />
+          Visualize &amp; Score
         </button>
       </div>
+    </div>
     </div>
   );
 };

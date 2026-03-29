@@ -4,13 +4,14 @@ import React, { useState } from 'react';
 import { Target } from 'lucide-react';
 import { RegionSetup } from './RegionSetup';
 import { ConfigurationPanel } from './ConfigurationPanel';
-import { ManualCoordinateInput} from './ManualCoordinateInput';
+import { ManualCoordinateInput } from './ManualCoordinateInput';
 import { VisualizationCanvas } from './VisualizationCanvas';
 import { ResultsPanel } from './ResultsPanel';
 import { ConvergenceChart } from './ConvergenceChart';
 import { handleImageUpload } from '../utils/imageProcessing';
 import { runOptimization } from '../utils/geneticAlgorithm';
 import { runGradientDescent } from '../utils/gradientDescent';
+import { calculateScore, validateCoordinates } from '../utils/ScoreCalculation';
 import { createDefaultSemicircleMask } from '../utils/maskOperations';
 import { DEFAULT_PARAMS } from '../constants/defaultParams';
 
@@ -26,87 +27,123 @@ const MicPlacementOptimizer = () => {
   const [manualCoordinates, setManualCoordinates] = useState([]);
   const [showManualInput, setShowManualInput] = useState(false);
   const [params, setParams] = useState(DEFAULT_PARAMS);
+  const [manualAlgorithm, setManualAlgorithm] = useState('gradient');
+  // Validation error message shown near the relevant panel
+  const [coordError, setCoordError] = useState('');
+  const [manualError, setManualError] = useState('');
 
   const onImageUpload = (e) => {
     handleImageUpload(e, setImage, setMask, setUseDefaultSemicircle);
   };
 
   const onRunOptimization = () => {
-    const activeMask = useDefaultSemicircle 
-      ? createDefaultSemicircleMask(params.radius) 
+    const activeMask = useDefaultSemicircle
+      ? createDefaultSemicircleMask(params.radius)
       : mask;
-    
+
     if (params.optimizationMethod === 'gradient') {
       runGradientDescent(params, activeMask, setProgress, setResults, setIsRunning);
     } else {
       runOptimization(params, activeMask, setProgress, setResults, setIsRunning);
     }
     setEditMode(false);
+    setCoordError('');
   };
 
   const handleCoordinateChange = (index, axis, value) => {
-    const newResults = { ...results };
-    const numValue = value;
+    const newResults = { ...results, best: { ...results.best } };
     if (axis === 'x') {
-      newResults.best.xs[index] = numValue;
+      newResults.best.xs = [...results.best.xs];
+      newResults.best.xs[index] = value;
     } else {
-      newResults.best.ys[index] = numValue;
+      newResults.best.ys = [...results.best.ys];
+      newResults.best.ys[index] = value;
     }
     setResults(newResults);
-
+    setCoordError('');
   };
 
   const handleCoordinateBlur = (index, axis) => {
-    const newResults = { ...results };
-    const numValue = newResults.best[axis + 's'][index] == '' ? 0.00 : parseFloat(newResults.best[axis + 's'][index]);
-    if (!isNaN(numValue)) {
-       if (axis === 'x') {
-        newResults.best.xs[index] = numValue;
-      } else {
-        newResults.best.ys[index] = numValue;
-      }
-      setResults(newResults);
+    const newResults = { ...results, best: { ...results.best } };
+    const raw = newResults.best[axis + 's'][index];
+    const numValue = (raw === '' || raw === '-') ? 0.0 : parseFloat(raw);
+    if (axis === 'x') {
+      newResults.best.xs = [...results.best.xs];
+      newResults.best.xs[index] = isNaN(numValue) ? 0.0 : numValue;
+    } else {
+      newResults.best.ys = [...results.best.ys];
+      newResults.best.ys[index] = isNaN(numValue) ? 0.0 : numValue;
     }
-    else{
-      if (axis === 'x') {
-        newResults.best.xs[index] = 0.00;
-      } else {
-        newResults.best.ys[index] = 0.00;
-      }
-      setResults(newResults);
-    }
+    setResults(newResults);
   };
 
-
+  /**
+   * Re-calculate Score: moves mics to edited coords and recomputes
+   * the probability map. No optimisation loop is run.
+   */
   const reoptimizeFromEdited = () => {
     if (!results) return;
-    const currentCoords = results.best.xs.map((x, i) => ({ x, y: results.best.ys[i] }));
-    const activeMask = useDefaultSemicircle 
-      ? createDefaultSemicircleMask(params.radius) 
+
+    const xs = results.best.xs.map(v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; });
+    const ys = results.best.ys.map(v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; });
+
+    const activeMask = useDefaultSemicircle
+      ? createDefaultSemicircleMask(params.radius)
       : mask;
-    
-    if (params.optimizationMethod === 'gradient') {
-      runGradientDescent(params, activeMask, setProgress, setResults, setIsRunning, currentCoords);
+
+    // Validate — warn but still proceed so the user can see what happened
+    const oob = validateCoordinates(xs, ys, activeMask);
+    if (oob.length > 0) {
+      const names = oob.map(p => `Mic ${p.index} (${p.x}, ${p.y})`).join(', ');
+      setCoordError(
+        `⚠️ ${oob.length} mic${oob.length > 1 ? 's are' : ' is'} outside the valid region and will contribute zero detection: ${names}. ` +
+        `Valid range: x ∈ [−${params.radius}, ${params.radius}], y ∈ [0, ${params.radius}], within the semicircle.`
+      );
     } else {
-      runOptimization(params, activeMask, setProgress, setResults, setIsRunning, currentCoords);
+      setCoordError('');
     }
+
+    const newResults = calculateScore(
+      xs, ys, params, activeMask,
+      results.algorithmType,
+      results.scores
+    );
+    setResults(newResults);
     setEditMode(false);
   };
 
+  /**
+   * Visualize & Score from manual coordinates:
+   * Places mics exactly at the given coords and computes the score.
+   */
   const runFromManualCoordinates = () => {
     if (manualCoordinates.length === 0) {
-      alert('Please add at least one coordinate!');
+      setManualError('Please add at least one coordinate.');
       return;
     }
-    const activeMask = useDefaultSemicircle 
-      ? createDefaultSemicircleMask(params.radius) 
+
+    const xs = manualCoordinates.map(c => { const n = parseFloat(c.x); return isNaN(n) ? 0 : n; });
+    const ys = manualCoordinates.map(c => { const n = parseFloat(c.y); return isNaN(n) ? 0 : n; });
+
+    const activeMask = useDefaultSemicircle
+      ? createDefaultSemicircleMask(params.radius)
       : mask;
-    
-    if (params.optimizationMethod === 'gradient') {
-      runGradientDescent(params, activeMask, setProgress, setResults, setIsRunning, manualCoordinates);
+
+    // Validate before scoring
+    const oob = validateCoordinates(xs, ys, activeMask);
+    if (oob.length > 0) {
+      const names = oob.map(p => `Mic ${p.index} (${p.x}, ${p.y})`).join(', ');
+      setManualError(
+        `⚠️ ${oob.length} mic${oob.length > 1 ? 's are' : ' is'} outside the valid region: ${names}. ` +
+        `Valid range: x ∈ [−${params.radius}, ${params.radius}], y ∈ [0, ${params.radius}], within the semicircle.`
+      );
+      // Still proceed so the user can see the (dark) result
     } else {
-      runOptimization(params, activeMask, setProgress, setResults, setIsRunning, manualCoordinates);
+      setManualError('');
     }
+
+    const newResults = calculateScore(xs, ys, params, activeMask, manualAlgorithm);
+    setResults(newResults);
     setShowManualInput(false);
   };
 
@@ -132,8 +169,8 @@ const MicPlacementOptimizer = () => {
               useDefaultSemicircle={useDefaultSemicircle}
               setUseDefaultSemicircle={setUseDefaultSemicircle}
               onImageUpload={onImageUpload}
-              params={params}         // ← ADD THIS
-              setParams={setParams} 
+              params={params}
+              setParams={setParams}
             />
 
             <ConfigurationPanel
@@ -149,19 +186,32 @@ const MicPlacementOptimizer = () => {
 
             {/* Manual Input Toggle Button */}
             <button
-              onClick={() => setShowManualInput(!showManualInput)}
+              onClick={() => { setShowManualInput(!showManualInput); setManualError(''); }}
               className="w-full bg-navy-600 hover:bg-navy-700 text-cream-50 rounded-md py-4 font-bogota font-medium text-sm flex items-center justify-center gap-3 transition-all shadow-sm hover:shadow-md"
             >
               {showManualInput ? 'Hide Manual Input' : 'Manual Coordinates'}
             </button>
 
             {showManualInput && (
-              <ManualCoordinateInput
-                manualCoordinates={manualCoordinates}
-                setManualCoordinates={setManualCoordinates}
-                isRunning={isRunning}
-                onOptimize={runFromManualCoordinates}
-              />
+              <>
+                {manualError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <p className="font-bogota text-xs text-red-700 leading-relaxed">{manualError}</p>
+                    <p className="font-bogota text-xs text-red-500 mt-2">
+                      Tip: default semicircle spans x ∈ [−{params.radius}, {params.radius}] km, y ∈ [0, {params.radius}] km.
+                    </p>
+                  </div>
+                )}
+                <ManualCoordinateInput
+                  manualCoordinates={manualCoordinates}
+                  setManualCoordinates={setManualCoordinates}
+                  isRunning={isRunning}
+                  onOptimize={runFromManualCoordinates}
+                  manualAlgorithm={manualAlgorithm}
+                  setManualAlgorithm={setManualAlgorithm}
+                  params={params}
+                />
+              </>
             )}
           </div>
 
@@ -174,6 +224,12 @@ const MicPlacementOptimizer = () => {
               useDefaultSemicircle={useDefaultSemicircle}
               image={image}
             />
+
+            {coordError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="font-bogota text-xs text-red-700 leading-relaxed">{coordError}</p>
+              </div>
+            )}
 
             {results && (
               <ResultsPanel

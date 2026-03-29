@@ -1,8 +1,22 @@
 // utils/fitnessEvaluation.js
-// Matches Python's Environment.evaluate() exactly:
-//   score = alpha * P_four_plus + (1-alpha) * P_helper
-// where P_four_plus = mean P(>=4 units) inside mask
-//       P_helper    = mean P(>=1 unit)  inside mask  [the "detection_probabilities_single"]
+//
+// CHANGES FROM PREVIOUS VERSION:
+//
+// 4. REBALANCED EMPTY PENALTY — replaces the auto-scaling approach which
+//    drove fitness negative by making the penalty larger than the reward.
+//
+//    The core problem: meanFour peaks at ~0.3-0.4 for 8 mics in a large region,
+//    but the old penalty could reach 1.0, making every solution score negative
+//    and removing all gradient for the algorithm to follow.
+//
+//    Fix: penalties are now expressed as a fraction of meanFour itself, so they
+//    can never exceed the score they are modifying. Specifically:
+//
+//      emptyPenalty  = emptyPenaltyFraction  × meanFour × (lowCount / count)
+//      closePenalty  = closePenaltyFraction  × meanFour × (closePairs / totalPairs)
+//
+//    This keeps fitness always positive, scales naturally with the actual score,
+//    and still gives strong relative pressure to spread mics out.
 
 import { isInMask } from './maskOperations';
 
@@ -10,13 +24,9 @@ export const halfNormal = (x, sd) => Math.exp(-x * x / (2 * sd * sd));
 
 export const computeAlpha = (generation, totalGenerations, curve) => {
   if (curve === 'expo') return 1 - Math.exp(-4 * generation / totalGenerations);
-  return generation / totalGenerations; // linear (default)
+  return generation / totalGenerations;
 };
 
-/**
- * Compute per-recorder detection probability at a single grid point.
- * p_r = halfNormal(dist(grid_point, recorder_r), sd)
- */
 function recorderProbs(xs, ys, gx, gy, sd) {
   return xs.map((rx, k) => {
     const dist = Math.sqrt((gx - rx) ** 2 + (gy - ys[k]) ** 2);
@@ -24,46 +34,38 @@ function recorderProbs(xs, ys, gx, gy, sd) {
   });
 }
 
-/**
- * P(at least minUnits detections) via inclusion-exclusion.
- * minUnits=1 → P_helper  (detection_probabilities_single in Python)
- * minUnits=4 → P_four_plus (detection_probabilities in Python)
- */
 function pAtLeast(probs, minUnits) {
   const R = probs.length;
+  const q = probs.map(p => 1 - p);
 
   let P0 = 1;
-  for (let i = 0; i < R; i++) P0 *= 1 - probs[i];
+  for (let i = 0; i < R; i++) P0 *= q[i];
   if (minUnits <= 1) return 1 - P0;
 
   let P1 = 0;
   for (let i = 0; i < R; i++) {
-    let prod = probs[i];
-    for (let j = 0; j < R; j++) { if (j !== i) prod *= 1 - probs[j]; }
-    P1 += prod;
+    P1 += q[i] > 0 ? P0 * probs[i] / q[i] : probs[i];
   }
   if (minUnits <= 2) return 1 - P0 - P1;
 
   let P2 = 0;
   for (let i = 0; i < R; i++) {
+    const ri = q[i] > 0 ? probs[i] / q[i] : probs[i];
     for (let j = i + 1; j < R; j++) {
-      let prod = probs[i] * probs[j];
-      for (let k = 0; k < R; k++) { if (k !== i && k !== j) prod *= 1 - probs[k]; }
-      P2 += prod;
+      const rj = q[j] > 0 ? probs[j] / q[j] : probs[j];
+      P2 += P0 * ri * rj;
     }
   }
   if (minUnits <= 3) return 1 - P0 - P1 - P2;
 
-  // P(>=4) — four_plus, the primary metric in Python
   let P3 = 0;
   for (let i = 0; i < R; i++) {
+    const ri = q[i] > 0 ? probs[i] / q[i] : probs[i];
     for (let j = i + 1; j < R; j++) {
+      const rj = q[j] > 0 ? probs[j] / q[j] : probs[j];
       for (let k = j + 1; k < R; k++) {
-        let prod = probs[i] * probs[j] * probs[k];
-        for (let m = 0; m < R; m++) {
-          if (m !== i && m !== j && m !== k) prod *= 1 - probs[m];
-        }
-        P3 += prod;
+        const rk = q[k] > 0 ? probs[k] / q[k] : probs[k];
+        P3 += P0 * ri * rj * rk;
       }
     }
   }
@@ -71,31 +73,30 @@ function pAtLeast(probs, minUnits) {
 }
 
 /**
- * evaluateIndividual — matches Python's Environment.evaluate() with metric='mean'.
+ * evaluateIndividual
  *
- * score = alpha * mean(P_fourPlus[mask]) + (1-alpha) * mean(P_helper[mask])
- *       - emptyPenaltyFraction * fraction(P_fourPlus[mask] < 0.2)
- *       - closePenaltyFraction * fraction(pairs closer than minDist)
+ * score = meanFour
+ *       − emptyPenaltyFraction  × meanFour × (fraction of points below 0.2)
+ *       − closePenaltyFraction  × meanFour × (fraction of pairs too close)
+ *
+ * Penalties are proportional to meanFour so fitness is always positive
+ * and the algorithm always has a gradient to follow.
  */
 export const evaluateIndividual = (ind, gridX, gridY, activeMask, generation, params) => {
   const { xs, ys } = ind;
   const R = xs.length;
-  const minUnitsMain = R >= 4 ? 4 : 1; // match Python: four_plus when enough recorders
+  const minUnitsMain = R >= 4 ? 4 : 1;
 
-  const alpha = computeAlpha(generation, params.generations, params.alphaCurve);
-
-  let sumFour = 0, sumHelper = 0, count = 0, lowCount = 0;
+  let sumFour = 0, count = 0, lowCount = 0;
 
   for (let i = 0; i < gridX.length; i++) {
     for (let j = 0; j < gridY.length; j++) {
       if (!isInMask(gridX[i], gridY[j], activeMask)) continue;
 
       const probs = recorderProbs(xs, ys, gridX[i], gridY[j], params.sd);
-      const pFour   = pAtLeast(probs, minUnitsMain);
-      const pHelper = pAtLeast(probs, 1);
+      const pFour = pAtLeast(probs, minUnitsMain);
 
-      sumFour   += pFour;
-      sumHelper += pHelper;
+      sumFour += pFour;
       if (pFour < 0.2) lowCount++;
       count++;
     }
@@ -103,15 +104,12 @@ export const evaluateIndividual = (ind, gridX, gridY, activeMask, generation, pa
 
   if (count === 0) return 0;
 
-  const meanFour   = sumFour   / count;
-  const meanHelper = sumHelper / count;
+  const meanFour = sumFour / count;
 
-  let score = alpha * meanFour + (1 - alpha) * meanHelper;
+  // Both penalties are fractions of meanFour — fitness stays positive,
+  // and penalties scale naturally with how good the solution already is.
+  const emptyPenalty = params.emptyPenaltyFraction * meanFour * (lowCount / count);
 
-  // Empty penalty — matches Python: score -= emptyPenaltyFraction * mean(prob_map[mask] < 0.2)
-  score -= params.emptyPenaltyFraction * (lowCount / count);
-
-  // Close penalty — matches Python: score -= closePenaltyFraction * mean(dists < minDist)
   let closePairs = 0, totalPairs = 0;
   for (let i = 0; i < xs.length; i++) {
     for (let j = i + 1; j < xs.length; j++) {
@@ -120,9 +118,11 @@ export const evaluateIndividual = (ind, gridX, gridY, activeMask, generation, pa
       totalPairs++;
     }
   }
-  if (totalPairs > 0) score -= params.closePenaltyFraction * (closePairs / totalPairs);
+  const closePenalty = totalPairs > 0
+    ? params.closePenaltyFraction * meanFour * (closePairs / totalPairs)
+    : 0;
 
-  return score;
+  return meanFour - emptyPenalty - closePenalty;
 };
 
 /**

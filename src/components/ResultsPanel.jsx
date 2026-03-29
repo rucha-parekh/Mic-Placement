@@ -77,7 +77,7 @@ export const ResultsPanel = ({
                   className="px-5 py-2.5 bg-navy-700 hover:bg-navy-800 disabled:bg-gray-300 text-cream-50 rounded-md transition-all font-bogota font-medium text-sm flex items-center gap-2 shadow-sm hover:shadow-md disabled:shadow-none"
                 >
                   <RotateCcw className="w-4 h-4" />
-                  Re-optimize
+                  Re-calculate Score
                 </button>
               </>
             ) : (
@@ -110,21 +110,13 @@ export const ResultsPanel = ({
                       type="text"
                       inputMode="decimal"
                       value={x}
-                        onChange={(e) => {
-                          const val = e.target.value;
-
-                          // allow empty
-                          if (val === "") {
-                            onCoordinateChange(i, "x", "");
-                            return;
-                          }
-
-                          // allow valid decimal typing including trailing dot
-                          if (/^-?\d*\.?\d*$/.test(val)) {
-                            onCoordinateChange(i, "x", val);
-                          }
-                        }}
-
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        // Allow empty string, minus sign, and valid decimal-in-progress
+                        if (val === '' || val === '-' || /^-?\d*\.?\d*$/.test(val)) {
+                          onCoordinateChange(i, 'x', val);
+                        }
+                      }}
                       onBlur={() => onCoordinateBlur(i, 'x')}
                       className="w-full px-3 py-2.5 font-bogota text-sm font-mono border border-gray-300 rounded-md focus:border-navy-500 focus:ring-2 focus:ring-navy-200 focus:outline-none bg-white"
                     />
@@ -137,7 +129,7 @@ export const ResultsPanel = ({
                       value={results.best.ys[i]}
                       onChange={(e) => {
                         const val = e.target.value;
-                        if (/^-?\d*\.?\d*$/.test(val)) {
+                        if (val === '' || val === '-' || /^-?\d*\.?\d*$/.test(val)) {
                           onCoordinateChange(i, 'y', val);
                         }
                       }}
@@ -149,7 +141,7 @@ export const ResultsPanel = ({
               ) : (
                 <div className="flex-1">
                   <span className="font-mono text-lg font-semibold text-navy-800">
-                    ({x.toFixed(2)}, {results.best.ys[i].toFixed(2)})
+                    ({typeof x === 'number' ? x.toFixed(2) : x}, {typeof results.best.ys[i] === 'number' ? results.best.ys[i].toFixed(2) : results.best.ys[i]})
                   </span>
                 </div>
               )}
