@@ -1,70 +1,97 @@
 // utils/scoreCalculation.js
 //
-// Computes the detection probability map and mean score for a fixed set of
-// microphone positions — no optimisation, just pure evaluation + visualisation.
+// Computes the detection probability map and score for a fixed set of
+// microphone positions — no optimisation loop, just evaluation + visualisation.
 //
-// Used by:
-//   • "Re-calculate Score" after editing coordinates in ResultsPanel
-//   • "Visualize & Score" from ManualCoordinateInput
+// algorithmType now genuinely affects the score:
+//   'gradient' → meanProbability  (mean P(≥N) across the region, same as GD displays)
+//   'genetic'  → penalised fitness (meanFour − emptyPenalty − closePenalty,
+//                same formula as fitnessEvaluation.js uses during GA optimisation)
 
 import { isInMask } from './maskOperations';
 
-/**
- * P(detected by >= minUnits recorders) at a single grid point.
- * Exact inclusion-exclusion — identical to the formula used in geneticAlgorithm.js.
- */
+// ─── shared inclusion-exclusion ───────────────────────────────────────────────
+
 function detectionProb(xs, ys, gx, gy, sigma, minUnits) {
   const R = xs.length;
-  const p = xs.map((rx, k) => {
+  const q = xs.map((rx, k) => {
     const d2 = (gx - rx) ** 2 + (gy - ys[k]) ** 2;
-    return Math.exp(-d2 / (2 * sigma * sigma));
+    return 1 - Math.exp(-d2 / (2 * sigma * sigma));
   });
+  const p = q.map(qi => 1 - qi);
 
   let P0 = 1;
-  for (let i = 0; i < R; i++) P0 *= 1 - p[i];
-  if (minUnits === 1) return 1 - P0;
+  for (let i = 0; i < R; i++) P0 *= q[i];
+  if (minUnits <= 1) return 1 - P0;
 
   let P1 = 0;
-  for (let i = 0; i < R; i++) {
-    let prod = p[i];
-    for (let j = 0; j < R; j++) { if (j !== i) prod *= 1 - p[j]; }
-    P1 += prod;
-  }
-  if (minUnits === 2) return 1 - P0 - P1;
+  for (let i = 0; i < R; i++)
+    P1 += q[i] > 0 ? P0 * p[i] / q[i] : p[i];
+  if (minUnits <= 2) return 1 - P0 - P1;
 
   let P2 = 0;
   for (let i = 0; i < R; i++) {
+    const ri = q[i] > 0 ? p[i] / q[i] : p[i];
     for (let j = i + 1; j < R; j++) {
-      let prod = p[i] * p[j];
-      for (let k = 0; k < R; k++) { if (k !== i && k !== j) prod *= 1 - p[k]; }
-      P2 += prod;
+      P2 += P0 * ri * (q[j] > 0 ? p[j] / q[j] : p[j]);
     }
   }
-  if (minUnits === 3) return 1 - P0 - P1 - P2;
+  if (minUnits <= 3) return 1 - P0 - P1 - P2;
 
   let P3 = 0;
   for (let i = 0; i < R; i++) {
+    const ri = q[i] > 0 ? p[i] / q[i] : p[i];
     for (let j = i + 1; j < R; j++) {
+      const rj = q[j] > 0 ? p[j] / q[j] : p[j];
       for (let k = j + 1; k < R; k++) {
-        let prod = p[i] * p[j] * p[k];
-        for (let m = 0; m < R; m++) { if (m !== i && m !== j && m !== k) prod *= 1 - p[m]; }
-        P3 += prod;
+        P3 += P0 * ri * rj * (q[k] > 0 ? p[k] / q[k] : p[k]);
       }
     }
   }
-  return 1 - P0 - P1 - P2 - P3; // P(≥4)
+  return 1 - P0 - P1 - P2 - P3;
 }
 
-/**
- * validateCoordinates
- *
- * Checks which mic positions fall outside the valid region.
- * For the default semicircle the valid region is:
- *   x ∈ [-radius, +radius], y ∈ [0, radius], x²+y² ≤ radius²
- * For a custom mask it uses isInMask directly.
- *
- * Returns an array of { index, x, y } for every out-of-bounds mic.
- */
+// ─── genetic fitness penalties (mirrors fitnessEvaluation.js exactly) ─────────
+
+function computeGeneticFitness(xs, ys, probabilityMap, gridX, gridY, params) {
+  const R = xs.length;
+  const minUnitsMain = R >= 4 ? 4 : 1;
+
+  let sumFour = 0, count = 0, lowCount = 0;
+
+  for (let yi = 0; yi < gridY.length; yi++) {
+    for (let xi = 0; xi < gridX.length; xi++) {
+      const val = probabilityMap[yi][xi];
+      if (val === 0) continue; // outside mask
+      sumFour += val;
+      if (val < 0.2) lowCount++;
+      count++;
+    }
+  }
+
+  if (count === 0) return 0;
+
+  const meanFour = sumFour / count;
+
+  const emptyPenalty = params.emptyPenaltyFraction * meanFour * (lowCount / count);
+
+  let closePairs = 0, totalPairs = 0;
+  for (let i = 0; i < xs.length; i++) {
+    for (let j = i + 1; j < xs.length; j++) {
+      const dist = Math.sqrt((xs[i] - xs[j]) ** 2 + (ys[i] - ys[j]) ** 2);
+      if (dist < params.minDist) closePairs++;
+      totalPairs++;
+    }
+  }
+  const closePenalty = totalPairs > 0
+    ? params.closePenaltyFraction * meanFour * (closePairs / totalPairs)
+    : 0;
+
+  return meanFour - emptyPenalty - closePenalty;
+}
+
+// ─── coordinate validation ────────────────────────────────────────────────────
+
 export function validateCoordinates(xs, ys, mask) {
   const outOfBounds = [];
   for (let i = 0; i < xs.length; i++) {
@@ -75,19 +102,17 @@ export function validateCoordinates(xs, ys, mask) {
   return outOfBounds;
 }
 
+// ─── main export ──────────────────────────────────────────────────────────────
+
 /**
  * calculateScore
  *
- * Places microphones at the given positions, computes the probability map,
- * and returns a results object compatible with the rest of the UI.
+ * Places microphones at fixed positions and computes the score.
+ * algorithmType genuinely changes the score:
  *
- * @param {number[]} xs            - x coordinates of microphones (km)
- * @param {number[]} ys            - y coordinates of microphones (km)
- * @param {object}   params        - app params (radius, sd, …)
- * @param {object}   mask          - mask object passed to isInMask
- * @param {string}   algorithmType - 'gradient' | 'genetic'  (affects label only)
- * @param {number[]|null} existingScores - previous convergence scores to preserve (optional)
- * @returns {object}  results object ready for setResults()
+ *   'gradient' → meanProbability (mean P(≥N), same as gradient descent displays)
+ *   'genetic'  → penalised fitness (meanFour − emptyPenalty − closePenalty,
+ *                same as what the GA optimises in fitnessEvaluation.js)
  */
 export function calculateScore(xs, ys, params, mask, algorithmType = 'gradient', existingScores = null) {
   const RADIUS = params.radius;
@@ -97,9 +122,9 @@ export function calculateScore(xs, ys, params, mask, algorithmType = 'gradient',
   const pgX = Array.from({ length: vizNx }, (_, i) => -RADIUS + (2 * RADIUS * i) / (vizNx - 1));
   const pgY = Array.from({ length: vizNy }, (_, i) => (RADIUS * i) / (vizNy - 1));
 
-  // Use P(≥4) when 4+ mics, P(≥3) for 3, P(≥1) for fewer — matches existing convention
   const minUnits = xs.length >= 4 ? 4 : xs.length >= 3 ? 3 : 1;
 
+  // Build probability map (same for both algorithms — it's the visualisation)
   const probabilityMap = Array.from({ length: vizNy }, (_, yi) =>
     Array.from({ length: vizNx }, (_, xi) => {
       const gx = pgX[xi], gy = pgY[yi];
@@ -108,21 +133,29 @@ export function calculateScore(xs, ys, params, mask, algorithmType = 'gradient',
     })
   );
 
+  // meanProbability — used by gradient descent and also for the heatmap label
   let sumP = 0, cnt = 0;
   for (let yi = 0; yi < vizNy; yi++)
     for (let xi = 0; xi < vizNx; xi++)
       if (probabilityMap[yi][xi] > 0) { sumP += probabilityMap[yi][xi]; cnt++; }
   const meanProbability = cnt > 0 ? sumP / cnt : 0;
 
+  // geneticFitness — penalised score, only computed when needed
+  const geneticFitness = algorithmType === 'genetic'
+    ? computeGeneticFitness(xs, ys, probabilityMap, pgX, pgY, params)
+    : null;
+
+  // The displayed score depends on which algorithm is selected
+  const displayedFitness = algorithmType === 'genetic' ? geneticFitness : meanProbability;
+
   return {
     best: {
       xs: [...xs],
       ys: [...ys],
-      meanProbability,
-      fitness: meanProbability,
+      meanProbability,                    // always available for heatmap label
+      fitness: displayedFitness,          // what shows in the Fitness / Mean P panel
     },
-    // Keep previous convergence chart data if available, otherwise a flat line
-    scores: existingScores ?? [meanProbability],
+    scores: existingScores ?? [displayedFitness],
     algorithmType,
     probabilityMap,
     gridX: pgX,
