@@ -36,39 +36,42 @@ function recorderProbs(xs, ys, gx, gy, sd) {
 
 function pAtLeast(probs, minUnits) {
   const R = probs.length;
-  const q = probs.map(p => 1 - p);
 
   let P0 = 1;
-  for (let i = 0; i < R; i++) P0 *= q[i];
-  if (minUnits <= 1) return 1 - P0;
+  for (let i = 0; i < R; i++) P0 *= (1 - probs[i]);
+  if (minUnits === 1) return 1 - P0;
 
   let P1 = 0;
   for (let i = 0; i < R; i++) {
-    P1 += q[i] > 0 ? P0 * probs[i] / q[i] : probs[i];
+    let prod = probs[i];
+    for (let j = 0; j < R; j++) { if (j !== i) prod *= 1 - probs[j]; }
+    P1 += prod;
   }
-  if (minUnits <= 2) return 1 - P0 - P1;
+  if (minUnits === 2) return 1 - P0 - P1;
 
   let P2 = 0;
   for (let i = 0; i < R; i++) {
-    const ri = q[i] > 0 ? probs[i] / q[i] : probs[i];
     for (let j = i + 1; j < R; j++) {
-      const rj = q[j] > 0 ? probs[j] / q[j] : probs[j];
-      P2 += P0 * ri * rj;
+      let prod = probs[i] * probs[j];
+      for (let k = 0; k < R; k++) { if (k !== i && k !== j) prod *= 1 - probs[k]; }
+      P2 += prod;
     }
   }
-  if (minUnits <= 3) return 1 - P0 - P1 - P2;
+  if (minUnits === 3) return 1 - P0 - P1 - P2;
 
   let P3 = 0;
   for (let i = 0; i < R; i++) {
-    const ri = q[i] > 0 ? probs[i] / q[i] : probs[i];
     for (let j = i + 1; j < R; j++) {
-      const rj = q[j] > 0 ? probs[j] / q[j] : probs[j];
       for (let k = j + 1; k < R; k++) {
-        const rk = q[k] > 0 ? probs[k] / q[k] : probs[k];
-        P3 += P0 * ri * rj * rk;
+        let prod = probs[i] * probs[j] * probs[k];
+        for (let m = 0; m < R; m++) {
+          if (m !== i && m !== j && m !== k) prod *= 1 - probs[m];
+        }
+        P3 += prod;
       }
     }
   }
+
   return 1 - P0 - P1 - P2 - P3;
 }
 
@@ -85,16 +88,24 @@ function pAtLeast(probs, minUnits) {
 export const evaluateIndividual = (ind, gridX, gridY, activeMask, generation, params) => {
   const { xs, ys } = ind;
   const R = xs.length;
-  const minUnitsMain = R >= 4 ? 4 : 1;
 
-  let sumFour = 0, count = 0, lowCount = 0;
+  const minUnitsMain = R >= 4 ? 4 : 1; // match Python: four_plus when enough recorders
+
+  const alpha = computeAlpha(generation, params.generations, params.alphaCurve);
+
+  let sumFour = 0, sumHelper = 0, count = 0, lowCount = 0;
 
   for (let i = 0; i < gridX.length; i++) {
     for (let j = 0; j < gridY.length; j++) {
       if (!isInMask(gridX[i], gridY[j], activeMask)) continue;
 
       const probs = recorderProbs(xs, ys, gridX[i], gridY[j], params.sd);
-      const pFour = pAtLeast(probs, minUnitsMain);
+
+      const pFour   = pAtLeast(probs, minUnitsMain);
+      const pHelper = pAtLeast(probs, 1);
+
+      sumFour   += pFour;
+      sumHelper += pHelper;
 
       sumFour += pFour;
       if (pFour < 0.2) lowCount++;
@@ -104,11 +115,12 @@ export const evaluateIndividual = (ind, gridX, gridY, activeMask, generation, pa
 
   if (count === 0) return 0;
 
-  const meanFour = sumFour / count;
+  const meanFour   = sumFour   / count;
+  const meanHelper = sumHelper / count;
 
-  // Both penalties are fractions of meanFour — fitness stays positive,
-  // and penalties scale naturally with how good the solution already is.
-  const emptyPenalty = params.emptyPenaltyFraction * meanFour * (lowCount / count);
+  let score = alpha * meanFour + (1 - alpha) * meanHelper;
+
+  score -= params.emptyPenaltyFraction * (lowCount / count);
 
   let closePairs = 0, totalPairs = 0;
   for (let i = 0; i < xs.length; i++) {
@@ -118,11 +130,9 @@ export const evaluateIndividual = (ind, gridX, gridY, activeMask, generation, pa
       totalPairs++;
     }
   }
-  const closePenalty = totalPairs > 0
-    ? params.closePenaltyFraction * meanFour * (closePairs / totalPairs)
-    : 0;
+  if (totalPairs > 0) score -= params.closePenaltyFraction * (closePairs / totalPairs);
 
-  return meanFour - emptyPenalty - closePenalty;
+  return score;
 };
 
 /**
