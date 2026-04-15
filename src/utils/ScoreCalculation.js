@@ -73,7 +73,7 @@ function computeGeneticFitness(xs, ys, probabilityMap, gridX, gridY, params) {
 
   const meanFour = sumFour / count;
 
-  const emptyPenalty = params.emptyPenaltyFraction * meanFour * (lowCount / count);
+  const emptyPenalty = params.emptyPenaltyFraction * (lowCount / count);
 
   let closePairs = 0, totalPairs = 0;
   for (let i = 0; i < xs.length; i++) {
@@ -84,7 +84,7 @@ function computeGeneticFitness(xs, ys, probabilityMap, gridX, gridY, params) {
     }
   }
   const closePenalty = totalPairs > 0
-    ? params.closePenaltyFraction * meanFour * (closePairs / totalPairs)
+    ? params.closePenaltyFraction * (closePairs / totalPairs)
     : 0;
 
   return meanFour - emptyPenalty - closePenalty;
