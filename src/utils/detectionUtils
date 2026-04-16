@@ -1,0 +1,111 @@
+// utils/detectionUtils.js
+//
+// Shared detection probability utilities used by fitnessEvaluation.js,
+// geneticAlgorithm.js, scoreCalculation.js, and gradientDescent.js.
+//
+// Having one copy here means any fix propagates everywhere automatically.
+
+// ─── Gaussian detection probability for a single recorder ────────────────────
+
+/**
+ * halfNormal(dist, sd)
+ * P(recorder detects a sound at `dist` km away) = exp(-dist² / 2σ²)
+ */
+export const halfNormal = (dist, sd) => Math.exp(-dist * dist / (2 * sd * sd));
+
+// ─── P(≥ minUnits detections) at a single grid point ─────────────────────────
+
+/**
+ * detectionProb(xs, ys, gx, gy, sigma, minUnits)
+ *
+ * Exact inclusion-exclusion up to P(≥4).
+ * Uses explicit product loops — no factored shortcut — so it is correct
+ * even when p[i] = 1 (recorder sitting exactly on the grid point).
+ *
+ * Matches Python's detection_probabilities() exactly.
+ */
+export function detectionProb(xs, ys, gx, gy, sigma, minUnits) {
+  const R = xs.length;
+  const p = xs.map((rx, k) => {
+    const d2 = (gx - rx) ** 2 + (gy - ys[k]) ** 2;
+    return Math.exp(-d2 / (2 * sigma * sigma));
+  });
+  const q = p.map(pi => 1 - pi);
+
+  // P(exactly 0)
+  let P0 = 1;
+  for (let i = 0; i < R; i++) P0 *= q[i];
+  if (minUnits <= 1) return 1 - P0;
+
+  // P(exactly 1)
+  let P1 = 0;
+  for (let i = 0; i < R; i++) {
+    let prod = p[i];
+    for (let j = 0; j < R; j++) { if (j !== i) prod *= q[j]; }
+    P1 += prod;
+  }
+  if (minUnits <= 2) return 1 - P0 - P1;
+
+  // P(exactly 2)
+  let P2 = 0;
+  for (let i = 0; i < R; i++) {
+    for (let j = i + 1; j < R; j++) {
+      let prod = p[i] * p[j];
+      for (let k = 0; k < R; k++) { if (k !== i && k !== j) prod *= q[k]; }
+      P2 += prod;
+    }
+  }
+  if (minUnits <= 3) return 1 - P0 - P1 - P2;
+
+  // P(exactly 3) → P(≥4) = 1 − P0 − P1 − P2 − P3
+  let P3 = 0;
+  for (let i = 0; i < R; i++) {
+    for (let j = i + 1; j < R; j++) {
+      for (let k = j + 1; k < R; k++) {
+        let prod = p[i] * p[j] * p[k];
+        for (let m = 0; m < R; m++) { if (m !== i && m !== j && m !== k) prod *= q[m]; }
+        P3 += prod;
+      }
+    }
+  }
+  return 1 - P0 - P1 - P2 - P3;
+}
+
+// ─── Shared visualisation grid construction ───────────────────────────────────
+
+/**
+ * buildVizGrid(radius)
+ * Returns { pgX, pgY } — the standard 200×120 display grid used by all three
+ * algorithms for rendering the heatmap.
+ */
+export function buildVizGrid(radius) {
+  const vizNx = 200, vizNy = 120;
+  const pgX = Array.from({ length: vizNx }, (_, i) => -radius + (2 * radius * i) / (vizNx - 1));
+  const pgY = Array.from({ length: vizNy }, (_, i) => (radius * i) / (vizNy - 1));
+  return { pgX, pgY, vizNx, vizNy };
+}
+
+// ─── Mean probability inside mask ─────────────────────────────────────────────
+
+/**
+ * meanInsideMask(probabilityMap, vizNx, vizNy)
+ * Averages all non-zero cells in a probabilityMap (zeros = outside mask).
+ */
+export function meanInsideMask(probabilityMap, vizNx, vizNy) {
+  let sum = 0, cnt = 0;
+  for (let yi = 0; yi < vizNy; yi++)
+    for (let xi = 0; xi < vizNx; xi++)
+      if (probabilityMap[yi][xi] > 0) { sum += probabilityMap[yi][xi]; cnt++; }
+  return cnt > 0 ? sum / cnt : 0;
+}
+
+// ─── Standard minUnits rule ───────────────────────────────────────────────────
+
+/**
+ * getMinUnits(numRecorders)
+ * R >= 4 → require 4-unit detection; otherwise require 1.
+ * Consistent across GA, gradient descent, and score display.
+ */
+export function getMinUnits(numRecorders) {
+  return numRecorders >= 4 ? 4 : 1;
+}

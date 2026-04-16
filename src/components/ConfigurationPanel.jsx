@@ -13,6 +13,10 @@ export const ConfigurationPanel = ({
   progress,
   onRunOptimization
 }) => {
+  const isGenetic  = params.optimizationMethod === 'genetic';
+  const isGradient = params.optimizationMethod === 'gradient';
+  const isHybrid   = params.optimizationMethod === 'hybrid';
+
   return (
     <div className="bg-white rounded-lg p-8 shadow-sm border border-gray-200">
       <h2 className="font-santiago text-xl mb-8 text-navy-900 flex items-center gap-3">
@@ -33,11 +37,12 @@ export const ConfigurationPanel = ({
           >
             <option value="genetic">Genetic Algorithm</option>
             <option value="gradient">Gradient Descent</option>
+            <option value="hybrid">Hybrid (GA → Gradient Descent)</option>
           </select>
           <p className="font-bogota text-xs text-gray-500 mt-2">
-            {params.optimizationMethod === 'genetic' 
-              ? 'Evolutionary approach exploring multiple solutions simultaneously'
-              : 'Mathematical optimization following the steepest improvement direction'}
+            {isGenetic  && 'Evolutionary approach exploring multiple solutions simultaneously'}
+            {isGradient && 'Mathematical optimization following the steepest improvement direction'}
+            {isHybrid   && 'Runs a genetic algorithm first, then refines the best solution with gradient descent'}
           </p>
         </div>
 
@@ -50,18 +55,22 @@ export const ConfigurationPanel = ({
           onChange={(v) => setParams({...params, numRecorders: v})} 
         />
         
-        {params.optimizationMethod === 'genetic' ? (
+        {/* Generations — shown for GA and Hybrid */}
+        {(isGenetic || isHybrid) && (
           <SliderControl 
-            label="Generations" 
+            label="Generations (GA phase)" 
             value={params.generations} 
             min={10} 
             max={500} 
             step={10}
             onChange={(v) => setParams({...params, generations: v})} 
           />
-        ) : (
+        )}
+
+        {/* Gradient steps — shown for GD and Hybrid */}
+        {(isGradient || isHybrid) && (
           <SliderControl 
-            label="Optimization Steps" 
+            label={isHybrid ? 'Optimization Steps (GD phase)' : 'Optimization Steps'}
             value={params.gradientSteps} 
             min={100} 
             max={2000} 
@@ -101,7 +110,8 @@ export const ConfigurationPanel = ({
 
       {showAdvanced && (
         <div className="mt-8 pt-8 border-t border-gray-200 space-y-8">
-          {params.optimizationMethod === 'genetic' && (
+          {/* GA advanced settings — shown for GA and Hybrid */}
+          {(isGenetic || isHybrid) && (
             <>
               <div>
                 <SliderControl 
@@ -147,7 +157,8 @@ export const ConfigurationPanel = ({
             </>
           )}
           
-          {params.optimizationMethod === 'gradient' && (
+          {/* GD advanced settings — shown for GD and Hybrid */}
+          {(isGradient || isHybrid) && (
             <div>
               <SliderControl 
                 label="Learning Rate" 
@@ -205,7 +216,8 @@ export const ConfigurationPanel = ({
             </p>
           </div>
           
-          {params.optimizationMethod === 'genetic' && (
+          {/* Alpha curve — shown for GA and Hybrid */}
+          {(isGenetic || isHybrid) && (
             <div className="space-y-3">
               <label className="font-santiago text-sm text-navy-900 block">
                 Alpha Curve Strategy
@@ -242,6 +254,13 @@ export const ConfigurationPanel = ({
             style={{ width: `${progress}%` }} 
           />
         </div>
+      )}
+
+      {/* Hybrid phase indicator */}
+      {isRunning && isHybrid && (
+        <p className="mt-3 font-bogota text-xs text-center text-navy-500">
+          {progress <= 50 ? '⚙️ Phase 1: Genetic Algorithm' : '📉 Phase 2: Gradient Descent'}
+        </p>
       )}
     </div>
   );

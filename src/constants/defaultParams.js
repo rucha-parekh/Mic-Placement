@@ -1,12 +1,10 @@
-// constants/defaultParams.js
-
 export const DEFAULT_PARAMS = {
   numRecorders: 8,
   generations: 200,
   sd: 10,
-  radius: 30,  // Default semicircle radius in km
-  imageWidthKm: 60,  // Default width for uploaded images in km (2 × radius)
-  imageHeightKm: 30,  // Default height for uploaded images in km (= radius)
+  radius: 30,
+  imageWidthKm: 60,
+  imageHeightKm: 30,
   popSize: 100,
   mutationRate: 0.3,
   mutationStd: 4.0,
@@ -14,7 +12,7 @@ export const DEFAULT_PARAMS = {
   closePenaltyFraction: 0.5,
   minDist: 3,
   alphaCurve: 'linear',
-  optimizationMethod: 'genetic', // 'genetic' or 'gradient'
+  optimizationMethod: 'genetic', // 'genetic', 'gradient', or 'hybrid'
   gradientLearningRate: 0.001,
   gradientSteps: 1000
 };

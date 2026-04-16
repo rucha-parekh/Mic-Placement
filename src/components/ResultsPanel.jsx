@@ -15,17 +15,22 @@ export const ResultsPanel = ({
 }) => {
   if (!results) return null;
 
-  // Determine if this is from gradient descent or genetic algorithm
-  const isGradientDescent = results.algorithmType === 'gradient';
-  
-  // Get the score value and label based on algorithm
-  const scoreValue = isGradientDescent 
-    ? results.best.meanProbability 
+  const isGradient = results.algorithmType === 'gradient';
+  const isHybrid   = results.algorithmType === 'hybrid';
+  const isGenetic  = !isGradient && !isHybrid;
+
+  // Hybrid and gradient both expose meanProbability; GA exposes fitness
+  const scoreValue = (isGradient || isHybrid)
+    ? results.best.meanProbability
     : results.best.fitness;
-  
-  const scoreLabel = isGradientDescent 
-    ? 'Mean Probability' 
-    : 'Fitness';
+
+  const scoreLabel = (isGradient || isHybrid) ? 'Mean Probability' : 'Fitness';
+
+  const methodLabel = isGradient
+    ? 'gradient descent'
+    : isHybrid
+      ? 'hybrid (GA + gradient descent)'
+      : 'genetic algorithm';
 
   return (
     <div className="space-y-6">
@@ -37,7 +42,7 @@ export const ResultsPanel = ({
           <div className="font-santiago text-4xl text-navy-900">
             {scoreValue ? scoreValue.toFixed(4) : 'N/A'}
           </div>
-          {isGradientDescent && (
+          {(isGradient || isHybrid) && (
             <p className="font-bogota text-xs text-navy-500 mt-2">
               Average probability of detecting signals across the region
             </p>
@@ -52,7 +57,7 @@ export const ResultsPanel = ({
             {results.best.xs.length} mics
           </div>
           <p className="font-bogota text-xs text-navy-500 mt-2">
-            Optimized using {isGradientDescent ? 'gradient descent' : 'genetic algorithm'}
+            Optimized using {methodLabel}
           </p>
         </div>
       </div>
@@ -112,7 +117,6 @@ export const ResultsPanel = ({
                       value={x}
                       onChange={(e) => {
                         const val = e.target.value;
-                        // Allow empty string, minus sign, and valid decimal-in-progress
                         if (val === '' || val === '-' || /^-?\d*\.?\d*$/.test(val)) {
                           onCoordinateChange(i, 'x', val);
                         }
