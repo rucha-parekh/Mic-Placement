@@ -3,6 +3,23 @@ import React from 'react';
 import { Upload, Ruler } from 'lucide-react';
 import { ScaleGuideDownload } from './ScaleGuideDownload';
 
+<RegionSetup
+  useDefaultSemicircle={useDefaultSemicircle}
+  setUseDefaultSemicircle={setUseDefaultSemicircle}
+  params={params}
+  setParams={setParams}
+  onImageUpload={(e) =>
+    handleImageUpload(
+      e,
+      setImage,
+      setMask,
+      setUseDefaultSemicircle,
+      setImageObj,   // 👈 THIS WAS MISSING
+      params
+    )
+  }
+/>
+
 export const RegionSetup = ({ 
   useDefaultSemicircle, 
   setUseDefaultSemicircle, 
@@ -70,7 +87,7 @@ export const RegionSetup = ({
               <input
                 type="number"
                 min="1"
-                max="100"
+                max="1000"
                 step="1"
                 value={params.imageWidthKm || 60}
                 onChange={(e) => setParams({...params, imageWidthKm: parseFloat(e.target.value)})}
@@ -88,7 +105,7 @@ export const RegionSetup = ({
               <input
                 type="number"
                 min="1"
-                max="100"
+                max="1000"
                 step="1"
                 value={params.imageHeightKm || 30}
                 onChange={(e) => setParams({...params, imageHeightKm: parseFloat(e.target.value)})}
