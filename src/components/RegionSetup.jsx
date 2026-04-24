@@ -3,23 +3,6 @@ import React from 'react';
 import { Upload, Ruler } from 'lucide-react';
 import { ScaleGuideDownload } from './ScaleGuideDownload';
 
-<RegionSetup
-  useDefaultSemicircle={useDefaultSemicircle}
-  setUseDefaultSemicircle={setUseDefaultSemicircle}
-  params={params}
-  setParams={setParams}
-  onImageUpload={(e) =>
-    handleImageUpload(
-      e,
-      setImage,
-      setMask,
-      setUseDefaultSemicircle,
-      setImageObj,   // 👈 THIS WAS MISSING
-      params
-    )
-  }
-/>
-
 export const RegionSetup = ({ 
   useDefaultSemicircle, 
   setUseDefaultSemicircle, 

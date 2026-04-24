@@ -8,15 +8,17 @@ import { ManualCoordinateInput } from './ManualCoordinateInput';
 import { VisualizationCanvas } from './VisualizationCanvas';
 import { ResultsPanel } from './ResultsPanel';
 import { ConvergenceChart } from './ConvergenceChart';
-import { handleImageUpload } from '../utils/imageProcessing';
+import { handleImageUpload, processImageToMask } from '../utils/imageProcessing';
 import { runOptimization } from '../utils/geneticAlgorithm';
 import { runGradientDescent } from '../utils/gradientDescent';
+import { runHybridOptimization } from '../utils/hybridOptimization';
 import { calculateScore, validateCoordinates } from '../utils/ScoreCalculation';
 import { createDefaultSemicircleMask } from '../utils/maskOperations';
 import { DEFAULT_PARAMS } from '../constants/defaultParams';
 
 const MicPlacementOptimizer = () => {
   const [image, setImage] = useState(null);
+  const [imageObj, setImageObj] = useState(null);
   const [mask, setMask] = useState(null);
   const [useDefaultSemicircle, setUseDefaultSemicircle] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
@@ -28,12 +30,24 @@ const MicPlacementOptimizer = () => {
   const [showManualInput, setShowManualInput] = useState(false);
   const [params, setParams] = useState(DEFAULT_PARAMS);
   const [manualAlgorithm, setManualAlgorithm] = useState('gradient');
-  // Validation error message shown near the relevant panel
   const [coordError, setCoordError] = useState('');
   const [manualError, setManualError] = useState('');
 
   const onImageUpload = (e) => {
-    handleImageUpload(e, setImage, setMask, setUseDefaultSemicircle);
+    handleImageUpload(e, setImage, setMask, setUseDefaultSemicircle, setImageObj, params);
+  };
+
+  // Re-process mask whenever km dimensions change and an image is already loaded
+  const handleParamsChange = (newParams) => {
+    setParams(newParams);
+    if (
+      imageObj &&
+      !useDefaultSemicircle &&
+      (newParams.imageWidthKm !== params.imageWidthKm ||
+        newParams.imageHeightKm !== params.imageHeightKm)
+    ) {
+      processImageToMask(imageObj, setMask, newParams);
+    }
   };
 
   const onRunOptimization = () => {
@@ -43,6 +57,8 @@ const MicPlacementOptimizer = () => {
 
     if (params.optimizationMethod === 'gradient') {
       runGradientDescent(params, activeMask, setProgress, setResults, setIsRunning);
+    } else if (params.optimizationMethod === 'hybrid') {
+      runHybridOptimization(params, activeMask, setProgress, setResults, setIsRunning);
     } else {
       runOptimization(params, activeMask, setProgress, setResults, setIsRunning);
     }
@@ -77,10 +93,6 @@ const MicPlacementOptimizer = () => {
     setResults(newResults);
   };
 
-  /**
-   * Re-calculate Score: moves mics to edited coords and recomputes
-   * the probability map. No optimisation loop is run.
-   */
   const reoptimizeFromEdited = () => {
     if (!results) return;
 
@@ -91,7 +103,6 @@ const MicPlacementOptimizer = () => {
       ? createDefaultSemicircleMask(params.radius)
       : mask;
 
-    // Validate — warn but still proceed so the user can see what happened
     const oob = validateCoordinates(xs, ys, activeMask);
     if (oob.length > 0) {
       const names = oob.map(p => `Mic ${p.index} (${p.x}, ${p.y})`).join(', ');
@@ -112,10 +123,6 @@ const MicPlacementOptimizer = () => {
     setEditMode(false);
   };
 
-  /**
-   * Visualize & Score from manual coordinates:
-   * Places mics exactly at the given coords and computes the score.
-   */
   const runFromManualCoordinates = () => {
     if (manualCoordinates.length === 0) {
       setManualError('Please add at least one coordinate.');
@@ -129,7 +136,6 @@ const MicPlacementOptimizer = () => {
       ? createDefaultSemicircleMask(params.radius)
       : mask;
 
-    // Validate before scoring
     const oob = validateCoordinates(xs, ys, activeMask);
     if (oob.length > 0) {
       const names = oob.map(p => `Mic ${p.index} (${p.x}, ${p.y})`).join(', ');
@@ -137,7 +143,6 @@ const MicPlacementOptimizer = () => {
         `⚠️ ${oob.length} mic${oob.length > 1 ? 's are' : ' is'} outside the valid region: ${names}. ` +
         `Valid range: x ∈ [−${params.radius}, ${params.radius}], y ∈ [0, ${params.radius}], within the semicircle.`
       );
-      // Still proceed so the user can see the (dark) result
     } else {
       setManualError('');
     }
@@ -170,7 +175,7 @@ const MicPlacementOptimizer = () => {
               setUseDefaultSemicircle={setUseDefaultSemicircle}
               onImageUpload={onImageUpload}
               params={params}
-              setParams={setParams}
+              setParams={handleParamsChange}
             />
 
             <ConfigurationPanel
@@ -184,7 +189,6 @@ const MicPlacementOptimizer = () => {
               onRunOptimization={onRunOptimization}
             />
 
-            {/* Manual Input Toggle Button */}
             <button
               onClick={() => { setShowManualInput(!showManualInput); setManualError(''); }}
               className="w-full bg-navy-600 hover:bg-navy-700 text-cream-50 rounded-md py-4 font-bogota font-medium text-sm flex items-center justify-center gap-3 transition-all shadow-sm hover:shadow-md"

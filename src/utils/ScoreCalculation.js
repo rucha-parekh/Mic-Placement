@@ -1,16 +1,6 @@
-// utils/scoreCalculation.js
-//
-// Computes the detection probability map and score for a fixed set of
-// microphone positions — no optimisation loop, just evaluation + visualisation.
-//
-// algorithmType now genuinely affects the score:
-//   'gradient' → meanProbability  (mean P(≥N) across the region, same as GD displays)
-//   'genetic'  → penalised fitness (meanFour − emptyPenalty − closePenalty,
-//                same formula as fitnessEvaluation.js uses during GA optimisation)
+// utils/ScoreCalculation.js
 
-import { isInMask } from './maskOperations';
-
-// ─── shared inclusion-exclusion ───────────────────────────────────────────────
+import { isInMask, getMaskBounds } from './maskOperations';
 
 function detectionProb(xs, ys, gx, gy, sigma, minUnits) {
   const R = xs.length;
@@ -51,18 +41,14 @@ function detectionProb(xs, ys, gx, gy, sigma, minUnits) {
   return 1 - P0 - P1 - P2 - P3;
 }
 
-// ─── genetic fitness penalties (mirrors fitnessEvaluation.js exactly) ─────────
-
 function computeGeneticFitness(xs, ys, probabilityMap, gridX, gridY, params) {
   const R = xs.length;
-  const minUnitsMain = R >= 4 ? 4 : 1;
-
   let sumFour = 0, count = 0, lowCount = 0;
 
   for (let yi = 0; yi < gridY.length; yi++) {
     for (let xi = 0; xi < gridX.length; xi++) {
       const val = probabilityMap[yi][xi];
-      if (val === 0) continue; // outside mask
+      if (val === 0) continue;
       sumFour += val;
       if (val < 0.2) lowCount++;
       count++;
@@ -72,7 +58,6 @@ function computeGeneticFitness(xs, ys, probabilityMap, gridX, gridY, params) {
   if (count === 0) return 0;
 
   const meanFour = sumFour / count;
-
   const emptyPenalty = params.emptyPenaltyFraction * (lowCount / count);
 
   let closePairs = 0, totalPairs = 0;
@@ -90,8 +75,6 @@ function computeGeneticFitness(xs, ys, probabilityMap, gridX, gridY, params) {
   return meanFour - emptyPenalty - closePenalty;
 }
 
-// ─── coordinate validation ────────────────────────────────────────────────────
-
 export function validateCoordinates(xs, ys, mask) {
   const outOfBounds = [];
   for (let i = 0; i < xs.length; i++) {
@@ -102,29 +85,20 @@ export function validateCoordinates(xs, ys, mask) {
   return outOfBounds;
 }
 
-// ─── main export ──────────────────────────────────────────────────────────────
-
-/**
- * calculateScore
- *
- * Places microphones at fixed positions and computes the score.
- * algorithmType genuinely changes the score:
- *
- *   'gradient' → meanProbability (mean P(≥N), same as gradient descent displays)
- *   'genetic'  → penalised fitness (meanFour − emptyPenalty − closePenalty,
- *                same as what the GA optimises in fitnessEvaluation.js)
- */
 export function calculateScore(xs, ys, params, mask, algorithmType = 'gradient', existingScores = null) {
-  const RADIUS = params.radius;
-  const sigma  = params.sd;
+  const sigma = params.sd;
+
+  // ✅ FIX: use mask bounds, not params.radius
+  const { xMin, xMax, yMin, yMax } = getMaskBounds(mask);
+  const W = xMax - xMin;
+  const H = yMax - yMin;
 
   const vizNx = 200, vizNy = 120;
-  const pgX = Array.from({ length: vizNx }, (_, i) => -RADIUS + (2 * RADIUS * i) / (vizNx - 1));
-  const pgY = Array.from({ length: vizNy }, (_, i) => (RADIUS * i) / (vizNy - 1));
+  const pgX = Array.from({ length: vizNx }, (_, i) => xMin + (W * i) / (vizNx - 1));
+  const pgY = Array.from({ length: vizNy }, (_, i) => yMin + (H * i) / (vizNy - 1));
 
   const minUnits = xs.length >= 4 ? 4 : xs.length >= 3 ? 3 : 1;
 
-  // Build probability map (same for both algorithms — it's the visualisation)
   const probabilityMap = Array.from({ length: vizNy }, (_, yi) =>
     Array.from({ length: vizNx }, (_, xi) => {
       const gx = pgX[xi], gy = pgY[yi];
@@ -133,27 +107,24 @@ export function calculateScore(xs, ys, params, mask, algorithmType = 'gradient',
     })
   );
 
-  // meanProbability — used by gradient descent and also for the heatmap label
   let sumP = 0, cnt = 0;
   for (let yi = 0; yi < vizNy; yi++)
     for (let xi = 0; xi < vizNx; xi++)
       if (probabilityMap[yi][xi] > 0) { sumP += probabilityMap[yi][xi]; cnt++; }
   const meanProbability = cnt > 0 ? sumP / cnt : 0;
 
-  // geneticFitness — penalised score, only computed when needed
   const geneticFitness = algorithmType === 'genetic'
     ? computeGeneticFitness(xs, ys, probabilityMap, pgX, pgY, params)
     : null;
 
-  // The displayed score depends on which algorithm is selected
   const displayedFitness = algorithmType === 'genetic' ? geneticFitness : meanProbability;
 
   return {
     best: {
       xs: [...xs],
       ys: [...ys],
-      meanProbability,                    // always available for heatmap label
-      fitness: displayedFitness,          // what shows in the Fitness / Mean P panel
+      meanProbability,
+      fitness: displayedFitness,
     },
     scores: existingScores ?? [displayedFitness],
     algorithmType,
@@ -161,7 +132,6 @@ export function calculateScore(xs, ys, params, mask, algorithmType = 'gradient',
     gridX: pgX,
     gridY: pgY,
     physicalPositions: xs.map((x, i) => [x, ys[i]]),
-    radius: RADIUS,
     minUnits,
     vmax: 1,
   };

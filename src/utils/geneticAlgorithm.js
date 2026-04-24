@@ -1,11 +1,7 @@
 // utils/geneticAlgorithm.js
-import { isInMask, randomInMask } from './maskOperations';
+import { isInMask, randomInMask, getMaskBounds } from './maskOperations';
 import { evaluateIndividual } from './fitnessEvaluation';
 
-/**
- * P(detected by >= minUnits recorders) at a single grid point.
- * Exact inclusion-exclusion — matches Python's detection_probabilities().
- */
 function detectionProb(xs, ys, gx, gy, sigma, minUnits) {
   const R = xs.length;
   const p = xs.map((rx, k) => {
@@ -13,12 +9,10 @@ function detectionProb(xs, ys, gx, gy, sigma, minUnits) {
     return Math.exp(-d2 / (2 * sigma * sigma));
   });
 
-  // P(exactly 0)
   let P0 = 1;
   for (let i = 0; i < R; i++) P0 *= 1 - p[i];
   if (minUnits === 1) return 1 - P0;
 
-  // P(exactly 1)
   let P1 = 0;
   for (let i = 0; i < R; i++) {
     let prod = p[i];
@@ -27,7 +21,6 @@ function detectionProb(xs, ys, gx, gy, sigma, minUnits) {
   }
   if (minUnits === 2) return 1 - P0 - P1;
 
-  // P(exactly 2)
   let P2 = 0;
   for (let i = 0; i < R; i++) {
     for (let j = i + 1; j < R; j++) {
@@ -38,7 +31,6 @@ function detectionProb(xs, ys, gx, gy, sigma, minUnits) {
   }
   if (minUnits === 3) return 1 - P0 - P1 - P2;
 
-  // P(exactly 3)  →  P(≥4) = four_plus, matches Python exactly
   let P3 = 0;
   for (let i = 0; i < R; i++) {
     for (let j = i + 1; j < R; j++) {
@@ -49,7 +41,7 @@ function detectionProb(xs, ys, gx, gy, sigma, minUnits) {
       }
     }
   }
-  return 1 - P0 - P1 - P2 - P3;   // P(≥4) — four_plus
+  return 1 - P0 - P1 - P2 - P3;
 }
 
 export const runOptimization = async (
@@ -67,13 +59,16 @@ export const runOptimization = async (
   setIsRunning(true);
   setProgress(0);
 
-  const sigma   = params.sd;
-  const RADIUS  = params.radius;
+  const sigma  = params.sd;
+  // ✅ FIX: derive all bounds from the mask, not hardcoded values
+  const { xMin, xMax, yMin, yMax } = getMaskBounds(activeMask);
+  const W = xMax - xMin;
+  const H = yMax - yMin;
 
-  // Fitness grid (physical km)
+  // Fitness grid — covers the mask's actual world extent
   const gridSize = 80;
-  const gridX = Array.from({ length: gridSize }, (_, i) => -30 + (60 / (gridSize - 1)) * i);
-  const gridY = Array.from({ length: gridSize }, (_, i) => (30  / (gridSize - 1)) * i);
+  const gridX = Array.from({ length: gridSize }, (_, i) => xMin + (W / (gridSize - 1)) * i);
+  const gridY = Array.from({ length: gridSize }, (_, i) => yMin + (H / (gridSize - 1)) * i);
 
   // ── Initialise population ─────────────────────────────────────────────────
   let population = [];
@@ -118,7 +113,6 @@ export const runOptimization = async (
         ys: p1.ys.map((y, i) => a * y + (1 - a) * p2.ys[i]),
         fitness: 0,
       };
-      // Repair + mutate
       for (let i = 0; i < child.xs.length; i++) {
         if (!isInMask(child.xs[i], child.ys[i], activeMask)) {
           const pos = randomInMask(activeMask); child.xs[i] = pos.x; child.ys[i] = pos.y;
@@ -130,8 +124,9 @@ export const runOptimization = async (
           do {
             nx = child.xs[i] + (Math.random() - 0.5) * 2 * params.mutationStd;
             ny = child.ys[i] + (Math.random() - 0.5) * 2 * params.mutationStd;
-            nx = Math.max(-30, Math.min(30, nx));
-            ny = Math.max(0,   Math.min(30, ny));
+            // ✅ FIX: clamp to actual mask bounds, not hardcoded ±30
+            nx = Math.max(xMin, Math.min(xMax, nx));
+            ny = Math.max(yMin, Math.min(yMax, ny));
             tries++;
           } while (!isInMask(nx, ny, activeMask) && tries < 20);
           if (isInMask(nx, ny, activeMask)) { child.xs[i] = nx; child.ys[i] = ny; }
@@ -144,18 +139,16 @@ export const runOptimization = async (
     if (gen % 5 === 0) await new Promise(resolve => setTimeout(resolve, 0));
   }
 
-  // Final evaluation
   for (let ind of population)
     ind.fitness = evaluateIndividual(ind, gridX, gridY, activeMask, params.generations - 1, params);
   population.sort((a, b) => b.fitness - a.fitness);
   const best = population[0];
 
   // ── Visualisation probability map ─────────────────────────────────────────
-  // Use P(≥4) when >=4 recorders, else P(≥1), with vmax=1 — identical to Python.
-  // This produces the correct magma gradient (not solid yellow).
   const vizNx = 200, vizNy = 120;
-  const pgX = Array.from({ length: vizNx }, (_, i) => -RADIUS + (2 * RADIUS * i) / (vizNx - 1));
-  const pgY = Array.from({ length: vizNy }, (_, i) => (RADIUS * i) / (vizNy - 1));
+  // ✅ FIX: viz grid also uses mask bounds
+  const pgX = Array.from({ length: vizNx }, (_, i) => xMin + (W * i) / (vizNx - 1));
+  const pgY = Array.from({ length: vizNy }, (_, i) => yMin + (H * i) / (vizNy - 1));
   const minUnits = best.xs.length >= 4 ? 4 : 1;
 
   const probabilityMap = Array.from({ length: vizNy }, (_, yi) =>
@@ -166,7 +159,6 @@ export const runOptimization = async (
     })
   );
 
-  // Mean P inside mask
   let sumP = 0, cnt = 0;
   for (let yi = 0; yi < vizNy; yi++)
     for (let xi = 0; xi < vizNx; xi++)
@@ -181,10 +173,9 @@ export const runOptimization = async (
     gridX: pgX,
     gridY: pgY,
     physicalPositions: best.xs.map((x, i) => [x, best.ys[i]]),
-    radius: RADIUS,
     mask: activeMask,
     minUnits,
-    vmax: 1,   // fixed 0–1 scale, matches Python vmin=0 vmax=1
+    vmax: 1,
   });
 
   setIsRunning(false);

@@ -1,29 +1,19 @@
 // utils/hybridOptimization.js
-//
-// Exact port of Python notebook cells 9-11:
-//   1. Run GA (same as geneticAlgorithm.js) to convergence
-//   2. Take best individual's positions as initial_positions
-//   3. Feed into run_gradient_descent_with_penalties_ga_init (same as gradientDescent.js
-//      but initialised from GA output instead of random)
-//
-// The GA phase uses alpha blending (as Python does).
-// The GD phase uses hazardRate and the same penalty functions as gradientDescent.js.
 
-import { isInMask, randomInMask } from './maskOperations';
+import { isInMask, randomInMask, getMaskBounds } from './maskOperations';
 import { evaluateIndividual } from './fitnessEvaluation';
 import { runGradientDescent } from './gradientDescent';
 
-// ── GA phase (mirrors geneticAlgorithm.js exactly) ───────────────────────────
-
 async function runGAPhase(params, activeMask, setProgress, onGADone) {
-  const sigma  = params.radius;  // grid scale
-  const RADIUS = params.radius;
+  // ✅ FIX: use mask bounds
+  const { xMin, xMax, yMin, yMax } = getMaskBounds(activeMask);
+  const W = xMax - xMin;
+  const H = yMax - yMin;
 
   const gridSize = 80;
-  const gridX = Array.from({ length: gridSize }, (_, i) => -30 + (60 / (gridSize - 1)) * i);
-  const gridY = Array.from({ length: gridSize }, (_, i) => (30 / (gridSize - 1)) * i);
+  const gridX = Array.from({ length: gridSize }, (_, i) => xMin + (W / (gridSize - 1)) * i);
+  const gridY = Array.from({ length: gridSize }, (_, i) => yMin + (H / (gridSize - 1)) * i);
 
-  // Initialise population
   let population = [];
   for (let i = 0; i < params.popSize; i++) {
     const ind = { xs: [], ys: [], fitness: 0 };
@@ -43,7 +33,6 @@ async function runGAPhase(params, activeMask, setProgress, onGADone) {
     population.sort((a, b) => b.fitness - a.fitness);
     bestScores.push(population[0].fitness);
 
-    // Report GA phase as 0-50% of total progress
     setProgress(((gen + 1) / params.generations) * 50);
 
     const parents = population.slice(0, 5);
@@ -71,8 +60,9 @@ async function runGAPhase(params, activeMask, setProgress, onGADone) {
           do {
             nx = child.xs[i] + (Math.random() - 0.5) * 2 * params.mutationStd;
             ny = child.ys[i] + (Math.random() - 0.5) * 2 * params.mutationStd;
-            nx = Math.max(-30, Math.min(30, nx));
-            ny = Math.max(0,   Math.min(30, ny));
+            // ✅ FIX: clamp to actual bounds
+            nx = Math.max(xMin, Math.min(xMax, nx));
+            ny = Math.max(yMin, Math.min(yMax, ny));
             tries++;
           } while (!isInMask(nx, ny, activeMask) && tries < 20);
           if (isInMask(nx, ny, activeMask)) { child.xs[i] = nx; child.ys[i] = ny; }
@@ -85,7 +75,6 @@ async function runGAPhase(params, activeMask, setProgress, onGADone) {
     if (gen % 5 === 0) await new Promise(resolve => setTimeout(resolve, 0));
   }
 
-  // Final evaluation
   for (let ind of population)
     ind.fitness = evaluateIndividual(ind, gridX, gridY, activeMask, params.generations - 1, params);
   population.sort((a, b) => b.fitness - a.fitness);
@@ -95,18 +84,6 @@ async function runGAPhase(params, activeMask, setProgress, onGADone) {
   return best;
 }
 
-// ── Hybrid entry point ───────────────────────────────────────────────────────
-
-/**
- * runHybridOptimization
- *
- * Phase 1 (GA): runs params.generations generations of the genetic algorithm.
- *               Progress reported as 0-50%.
- * Phase 2 (GD): seeds gradient descent with GA best positions.
- *               Progress reported as 50-100%.
- *
- * Final result has algorithmType = 'hybrid'.
- */
 export async function runHybridOptimization(
   params,
   mask,
@@ -119,25 +96,20 @@ export async function runHybridOptimization(
 
   let gaScores = [];
 
-  // Phase 1: GA
   const gaBest = await runGAPhase(params, mask, setProgress, (best, scores) => {
     gaScores = scores;
   });
 
-  // ga_initial_positions = np.column_stack((best.xs, best.ys))
   const initialCoords = gaBest.xs.map((x, i) => ({ x, y: gaBest.ys[i] }));
 
-  // Phase 2: GD seeded from GA — wrap setProgress to map 50-100%
   const gdSetProgress = (pct) => setProgress(50 + pct / 2);
 
-  // Wrap setResults to tag as hybrid and merge GA scores into convergence chart
   const gdSetResults = (results) => {
     setResults({
       ...results,
       algorithmType: 'hybrid',
-      // Prepend GA scores so convergence chart shows both phases
       scores: [...gaScores, ...results.scores],
-      gaPhaseLength: gaScores.length,   // lets ConvergenceChart annotate the boundary
+      gaPhaseLength: gaScores.length,
     });
   };
 
@@ -146,7 +118,7 @@ export async function runHybridOptimization(
     mask,
     gdSetProgress,
     gdSetResults,
-    () => {},        // isRunning managed here, not inside GD
+    () => {},
     initialCoords
   );
 

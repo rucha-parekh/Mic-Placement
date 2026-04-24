@@ -1,12 +1,6 @@
 // utils/gradientDescent.js
-// Exact JavaScript port of the Python gradient descent code provided.
-//
-// Internal objective: mean P(>=3) inside mask   [compute_P_ge_3]
-// Main gradient:      d/da mean(P_ge_3)          [gradient_for_recorder]
-// Empty penalty grad: uses full P_ge_4 gradient  [_compute_full_P_grad_for_recorder]
-// Display map:        P(>=4)                      [matches Python plot]
 
-import { isInMask, randomInMask } from './maskOperations';
+import { isInMask, randomInMask, getMaskBounds } from './maskOperations';
 
 export async function runGradientDescent(
   params,
@@ -19,24 +13,28 @@ export async function runGradientDescent(
   setIsRunning(true);
   setProgress(0);
 
-  const RADIUS = params.radius;
   const sigma  = params.sd;
   const lr     = params.gradientLearningRate;
   const steps  = params.gradientSteps;
   const R      = params.numRecorders;
   const minDist              = params.minDist;
-  const closePenaltyFraction = params.closePenaltyFraction * 100;  // matches Python *100
-  const emptyPenaltyFraction = params.emptyPenaltyFraction * 10;   // matches Python *10
+  const closePenaltyFraction = params.closePenaltyFraction * 100;
+  const emptyPenaltyFraction = params.emptyPenaltyFraction * 10;
   const minProbThreshold     = 0.05;
 
-  // ── Grid (matches Python: linspace(-R,R,200) x linspace(0,R,120)) ────────
+  // ✅ FIX: all bounds come from the mask
+  const { xMin, xMax, yMin, yMax } = getMaskBounds(mask);
+  const W = xMax - xMin;
+  const H = yMax - yMin;
+
+  // Grid — matches mask world extent (200×120 resolution same as before)
   const gridSizeX = 200, gridSizeY = 120;
-  const gridX = Array.from({ length: gridSizeX }, (_, i) => -RADIUS + (2*RADIUS*i)/(gridSizeX-1));
-  const gridY = Array.from({ length: gridSizeY }, (_, i) => (RADIUS*i)/(gridSizeY-1));
+  const gridX = Array.from({ length: gridSizeX }, (_, i) => xMin + (W * i) / (gridSizeX - 1));
+  const gridY = Array.from({ length: gridSizeY }, (_, i) => yMin + (H * i) / (gridSizeY - 1));
 
   function isValidPoint(x, y) { return isInMask(x, y, mask); }
 
-  // ── Initialise positions inside mask ─────────────────────────────────────
+  // ── Initialise positions ──────────────────────────────────────────────────
   let recPositions = [];
   if (initialCoords && initialCoords.length > 0) {
     recPositions = initialCoords.map(c => [c.x, c.y]);
@@ -55,8 +53,6 @@ export async function runGradientDescent(
 
   const scores = [];
 
-  // ── compute_probabilities ─────────────────────────────────────────────────
-  // Returns p[yi][xi][r] = exp(-dist2 / (2*sigma^2))
   function computeProbabilities(recPos) {
     return Array.from({ length: gridSizeY }, (_, yi) =>
       Array.from({ length: gridSizeX }, (_, xi) =>
@@ -68,8 +64,6 @@ export async function runGradientDescent(
     );
   }
 
-  // ── compute_P_ge_3 ────────────────────────────────────────────────────────
-  // P(>=3 units) = 1 - P0 - P1 - P2  inside mask, 0 outside
   function computePGe3(p) {
     const Ny = p.length, Nx = p[0].length, numR = p[0][0].length;
     return Array.from({ length: Ny }, (_, yi) =>
@@ -78,14 +72,12 @@ export async function runGradientDescent(
         const pr = p[yi][xi];
         let P0 = 1;
         for (let i = 0; i < numR; i++) P0 *= 1 - pr[i];
-
         let P1 = 0;
         for (let i = 0; i < numR; i++) {
           let prod = pr[i];
           for (let j = 0; j < numR; j++) { if (j !== i) prod *= 1 - pr[j]; }
           P1 += prod;
         }
-
         let P2 = 0;
         for (let i = 0; i < numR; i++) {
           for (let j = i+1; j < numR; j++) {
@@ -99,7 +91,6 @@ export async function runGradientDescent(
     );
   }
 
-  // ── calculate_close_penalty ───────────────────────────────────────────────
   function calculateClosePenalty(recPos) {
     const n = recPos.length;
     const grads = recPos.map(() => [0, 0]);
@@ -117,8 +108,6 @@ export async function runGradientDescent(
     return grads;
   }
 
-  // ── calculate_empty_penalty ───────────────────────────────────────────────
-  // Returns penaltyGradP[yi][xi] = -2 * emptyPenaltyFraction * (thresh - P) where P < thresh
   function calculateEmptyPenalty(P) {
     const Ny = P.length, Nx = P[0].length;
     const penaltyGradP = Array.from({ length: Ny }, () => new Float64Array(Nx));
@@ -132,8 +121,6 @@ export async function runGradientDescent(
     return penaltyGradP;
   }
 
-  // ── gradient_for_recorder (P_ge_3 main gradient) ─────────────────────────
-  // Matches Python's gradient_for_recorder — gradient of mean P(>=3) w.r.t. recorder a
   function gradientForRecorder(a, recPos, p) {
     const Ny = p.length, Nx = p[0].length, numR = recPos.length;
     let dPx = 0, dPy = 0;
@@ -145,11 +132,9 @@ export async function runGradientDescent(
         const dpax = (dx/(sigma*sigma))*pa;
         const dpay = (dy/(sigma*sigma))*pa;
 
-        // P0_pref = prod(1-p[j], j!=a)
         let P0_pref = 1;
         for (let i = 0; i < numR; i++) { if (i!==a) P0_pref *= 1-pr[i]; }
 
-        // P1_term2 = sum_i!=a [ p[i] * prod(1-p[j], j!=i,j!=a) ]
         let P1_term2 = 0;
         for (let i = 0; i < numR; i++) {
           if (i===a) continue;
@@ -158,7 +143,6 @@ export async function runGradientDescent(
           P1_term2 += prod;
         }
 
-        // P2_term1 = sum_j!=a [ p[j] * prod(1-p[k], k!=a,k!=j) ]
         let P2_term1 = 0;
         for (let j = 0; j < numR; j++) {
           if (j===a) continue;
@@ -167,7 +151,6 @@ export async function runGradientDescent(
           P2_term1 += prod;
         }
 
-        // P2_term2 = sum_{i<j, i!=a, j!=a} [ p[i]*p[j] * prod(1-p[k], k!=i,j,a) ]
         let P2_term2 = 0;
         for (let i = 0; i < numR; i++) {
           if (i===a) continue;
@@ -185,7 +168,6 @@ export async function runGradientDescent(
         const dP2x = dpax*P2_term1 - dpax*P2_term2;
         const dP2y = dpay*P2_term1 - dpay*P2_term2;
 
-        // d/da P(>=3) = -(dP0 + dP1 + dP2)
         dPx += -(dP0x + dP1x + dP2x);
         dPy += -(dP0y + dP1y + dP2y);
       }
@@ -193,9 +175,6 @@ export async function runGradientDescent(
     return [dPx, dPy];
   }
 
-  // ── _compute_full_P_grad_for_recorder (P_ge_4 map gradient for empty penalty) ──
-  // Returns [dP_x_map, dP_y_map] — per-grid-point gradient of P(>=4) w.r.t. recorder a
-  // Used for chain rule: d(emptyPenalty)/d(pos_a) = sum(penaltyGradP * dP_map)
   function computeFullPGradForRecorder(a, recPos, p) {
     const Ny = p.length, Nx = p[0].length, numR = recPos.length;
     const dPx_map = Array.from({ length: Ny }, () => new Float64Array(Nx));
@@ -211,7 +190,6 @@ export async function runGradientDescent(
 
         let P0_pref = 1;
         for (let i = 0; i < numR; i++) { if (i!==a) P0_pref *= 1-pr[i]; }
-
         let P1_term2 = 0;
         for (let i = 0; i < numR; i++) {
           if (i===a) continue;
@@ -219,7 +197,6 @@ export async function runGradientDescent(
           for (let j = 0; j < numR; j++) { if (j!==i && j!==a) prod *= 1-pr[j]; }
           P1_term2 += prod;
         }
-
         let P2_term1 = 0;
         for (let j = 0; j < numR; j++) {
           if (j===a) continue;
@@ -237,8 +214,6 @@ export async function runGradientDescent(
             P2_term2 += prod;
           }
         }
-
-        // P3 terms (needed for P_ge_4 gradient)
         let P3_term1 = 0;
         for (let j = 0; j < numR; j++) {
           if (j===a) continue;
@@ -271,7 +246,6 @@ export async function runGradientDescent(
         const dP3x = dpax*P3_term1 - dpax*P3_term2;
         const dP3y = dpay*P3_term1 - dpay*P3_term2;
 
-        // d/da P(>=4) = -(dP0+dP1+dP2+dP3)
         dPx_map[yi][xi] = -(dP0x+dP1x+dP2x+dP3x);
         dPy_map[yi][xi] = -(dP0y+dP1y+dP2y+dP3y);
       }
@@ -279,10 +253,11 @@ export async function runGradientDescent(
     return [dPx_map, dPy_map];
   }
 
-  // ── project_inside_semicircle → but mask-aware ────────────────────────────
+  // ✅ FIX: project back into mask using actual bounds, not hardcoded semicircle logic
   function projectInsideMask(pos) {
     let [x, y] = pos;
-    if (y < 0) y = 0;
+    x = Math.max(xMin, Math.min(xMax, x));
+    y = Math.max(yMin, Math.min(yMax, y));
     if (isValidPoint(x, y)) return [x, y];
     const fb = randomInMask(mask);
     return [fb.x, fb.y];
@@ -296,9 +271,8 @@ export async function runGradientDescent(
     }
 
     const p = computeProbabilities(recPositions);
-    const P = computePGe3(p);  // internal objective is P(>=3)
+    const P = computePGe3(p);
 
-    // Mean P(>=3) for convergence tracking
     let sumP = 0, cnt = 0;
     for (let yi = 0; yi < gridSizeY; yi++)
       for (let xi = 0; xi < gridSizeX; xi++)
@@ -311,10 +285,7 @@ export async function runGradientDescent(
     const totalGrads = recPositions.map(() => [0, 0]);
 
     for (let a = 0; a < R; a++) {
-      // Main P(>=3) gradient
       const [mgx, mgy] = gradientForRecorder(a, recPositions, p);
-
-      // Empty penalty chain rule: sum(dL/dP * dP/d_pos_a) using full P_ge_4 gradient
       const [dPx_map, dPy_map] = computeFullPGradForRecorder(a, recPositions, p);
       let epGx = 0, epGy = 0;
       for (let yi = 0; yi < gridSizeY; yi++)
@@ -322,7 +293,6 @@ export async function runGradientDescent(
           epGx += penaltyGradP[yi][xi] * dPx_map[yi][xi];
           epGy += penaltyGradP[yi][xi] * dPy_map[yi][xi];
         }
-
       totalGrads[a][0] = mgx - closePenaltyGrads[a][0] - epGx;
       totalGrads[a][1] = mgy - closePenaltyGrads[a][1] - epGy;
     }
@@ -336,10 +306,11 @@ export async function runGradientDescent(
 
   setProgress(100);
 
-  // ── Final visualisation map: P(>=4), matches Python's plot ───────────────
+  // ── Final visualisation map ───────────────────────────────────────────────
   const vizNx = 200, vizNy = 120;
-  const pgX = Array.from({ length: vizNx }, (_, i) => -RADIUS + (2*RADIUS*i)/(vizNx-1));
-  const pgY = Array.from({ length: vizNy }, (_, i) => (RADIUS*i)/(vizNy-1));
+  // ✅ FIX: viz grid uses mask bounds
+  const pgX = Array.from({ length: vizNx }, (_, i) => xMin + (W * i) / (vizNx - 1));
+  const pgY = Array.from({ length: vizNy }, (_, i) => yMin + (H * i) / (vizNy - 1));
   const numRf = recPositions.length;
 
   const finalProbabilityMap = Array.from({ length: vizNy }, (_, yi) =>
@@ -384,7 +355,6 @@ export async function runGradientDescent(
     gridX: pgX,
     gridY: pgY,
     physicalPositions: recPositions.map(p => [p[0], p[1]]),
-    radius: RADIUS,
     minUnits: numRf >= 4 ? 4 : 3,
     vmax: 1,
   });
