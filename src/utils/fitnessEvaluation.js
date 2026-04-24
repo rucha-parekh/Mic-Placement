@@ -1,31 +1,19 @@
 // utils/fitnessEvaluation.js
 //
-// CHANGES FROM PREVIOUS VERSION:
+// Faithful port of Python GA.ipynb fitness().
 //
-// 4. REBALANCED EMPTY PENALTY — replaces the auto-scaling approach which
-//    drove fitness negative by making the penalty larger than the reward.
+// Python fitness() does:
+//   score = meanP(≥4) inside mask          ← pure mean probability, NO alpha blending
+//   score -= penalty_weight  * low_prob_fraction   ← empty penalty
+//   score -= penalty_strength * close_fraction      ← close penalty
 //
-//    The core problem: meanFour peaks at ~0.3-0.4 for 8 mics in a large region,
-//    but the old penalty could reach 1.0, making every solution score negative
-//    and removing all gradient for the algorithm to follow.
-//
-//    Fix: penalties are now expressed as a fraction of meanFour itself, so they
-//    can never exceed the score they are modifying. Specifically:
-//
-//      emptyPenalty  = emptyPenaltyFraction  × meanFour × (lowCount / count)
-//      closePenalty  = closePenaltyFraction  × meanFour × (closePairs / totalPairs)
-//
-//    This keeps fitness always positive, scales naturally with the actual score,
-//    and still gives strong relative pressure to spread mics out.
+// The JS version had introduced alpha-blending (mixing P(≥1) into the objective)
+// which does NOT exist in the Python prototype. This was the primary reason GA
+// gave poor results — it was never purely optimising the right metric.
 
 import { isInMask } from './maskOperations';
 
 export const halfNormal = (x, sd) => Math.exp(-x * x / (2 * sd * sd));
-
-export const computeAlpha = (generation, totalGenerations, curve) => {
-  if (curve === 'expo') return 1 - Math.exp(-4 * generation / totalGenerations);
-  return generation / totalGenerations;
-};
 
 function recorderProbs(xs, ys, gx, gy, sd) {
   return xs.map((rx, k) => {
@@ -34,12 +22,13 @@ function recorderProbs(xs, ys, gx, gy, sd) {
   });
 }
 
+// Exact inclusion-exclusion matching Python detection_probabilities()
 function pAtLeast(probs, minUnits) {
   const R = probs.length;
 
   let P0 = 1;
   for (let i = 0; i < R; i++) P0 *= (1 - probs[i]);
-  if (minUnits === 1) return 1 - P0;
+  if (minUnits <= 1) return 1 - P0;
 
   let P1 = 0;
   for (let i = 0; i < R; i++) {
@@ -47,7 +36,7 @@ function pAtLeast(probs, minUnits) {
     for (let j = 0; j < R; j++) { if (j !== i) prod *= 1 - probs[j]; }
     P1 += prod;
   }
-  if (minUnits === 2) return 1 - P0 - P1;
+  if (minUnits <= 2) return 1 - P0 - P1;
 
   let P2 = 0;
   for (let i = 0; i < R; i++) {
@@ -57,7 +46,7 @@ function pAtLeast(probs, minUnits) {
       P2 += prod;
     }
   }
-  if (minUnits === 3) return 1 - P0 - P1 - P2;
+  if (minUnits <= 3) return 1 - P0 - P1 - P2;
 
   let P3 = 0;
   for (let i = 0; i < R; i++) {
@@ -71,56 +60,44 @@ function pAtLeast(probs, minUnits) {
       }
     }
   }
-
   return 1 - P0 - P1 - P2 - P3;
 }
 
 /**
  * evaluateIndividual
  *
- * score = meanFour
- *       − emptyPenaltyFraction  × meanFour × (fraction of points below 0.2)
- *       − closePenaltyFraction  × meanFour × (fraction of pairs too close)
+ * Returns { fitness, meanProbability }
  *
- * Penalties are proportional to meanFour so fitness is always positive
- * and the algorithm always has a gradient to follow.
+ *   meanProbability = mean P(≥minUnits) across mask  (what the chart shows)
+ *   fitness = meanProbability − emptyPenalty − closePenalty  (what GA sorts by)
+ *
+ * Both are on the same 0–1 scale as GD's meanProbability, so the hybrid
+ * convergence chart is continuous at the phase boundary.
  */
-export const evaluateIndividual = (ind, gridX, gridY, activeMask, generation, params) => {
+export const evaluateIndividual = (ind, gridX, gridY, activeMask, params) => {
   const { xs, ys } = ind;
   const R = xs.length;
 
-  const minUnitsMain = R >= 4 ? 4 : 1; // match Python: four_plus when enough recorders
+  const minUnits = R >= 4 ? 4 : R >= 3 ? 3 : 1;
 
-  const alpha = computeAlpha(generation, params.generations, params.alphaCurve);
-
-  let sumFour = 0, sumHelper = 0, count = 0, lowCount = 0;
+  let sumP = 0, count = 0, lowCount = 0;
 
   for (let i = 0; i < gridX.length; i++) {
     for (let j = 0; j < gridY.length; j++) {
       if (!isInMask(gridX[i], gridY[j], activeMask)) continue;
-
       const probs = recorderProbs(xs, ys, gridX[i], gridY[j], params.sd);
-
-      const pFour   = pAtLeast(probs, minUnitsMain);
-      const pHelper = pAtLeast(probs, 1);
-
-      sumFour   += pFour;
-      sumHelper += pHelper;
-
-      sumFour += pFour;
-      if (pFour < 0.2) lowCount++;
+      const p = pAtLeast(probs, minUnits);
+      sumP += p;
+      if (p < 0.2) lowCount++;
       count++;
     }
   }
 
-  if (count === 0) return 0;
+  if (count === 0) return { fitness: 0, meanProbability: 0 };
 
-  const meanFour   = sumFour   / count;
-  const meanHelper = sumHelper / count;
+  const meanProbability = sumP / count;
 
-  let score = alpha * meanFour + (1 - alpha) * meanHelper;
-
-  score -= params.emptyPenaltyFraction * (lowCount / count);
+  const emptyPenalty = params.emptyPenaltyFraction * (lowCount / count);
 
   let closePairs = 0, totalPairs = 0;
   for (let i = 0; i < xs.length; i++) {
@@ -130,13 +107,18 @@ export const evaluateIndividual = (ind, gridX, gridY, activeMask, generation, pa
       totalPairs++;
     }
   }
-  if (totalPairs > 0) score -= params.closePenaltyFraction * (closePairs / totalPairs);
+  const closePenalty = totalPairs > 0
+    ? params.closePenaltyFraction * (closePairs / totalPairs)
+    : 0;
 
-  return score;
+  return {
+    fitness: meanProbability - emptyPenalty - closePenalty,
+    meanProbability,
+  };
 };
 
 /**
- * computeProbabilityMap — kept for backward compatibility with canvasRenderer.js
+ * computeProbabilityMap — kept for canvasRenderer.js backward compat
  */
 export const computeProbabilityMap = (ind, gridX, gridY, sd) => {
   const probMap = Array(gridX.length).fill(0).map(() => Array(gridY.length).fill(0));
