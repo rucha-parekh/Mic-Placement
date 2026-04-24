@@ -60,22 +60,19 @@ export const runOptimization = async (
   setProgress(0);
 
   const sigma  = params.sd;
-  // ✅ FIX: derive all bounds from the mask, not hardcoded values
   const { xMin, xMax, yMin, yMax } = getMaskBounds(activeMask);
   const W = xMax - xMin;
   const H = yMax - yMin;
 
-  // Fitness grid — covers the mask's actual world extent
   const gridSize = 80;
   const gridX = Array.from({ length: gridSize }, (_, i) => xMin + (W / (gridSize - 1)) * i);
   const gridY = Array.from({ length: gridSize }, (_, i) => yMin + (H / (gridSize - 1)) * i);
 
-  // ── Initialise population ─────────────────────────────────────────────────
   let population = [];
   if (initialCoords && initialCoords.length > 0) {
-    population.push({ xs: initialCoords.map(c => c.x), ys: initialCoords.map(c => c.y), fitness: 0 });
+    population.push({ xs: initialCoords.map(c => c.x), ys: initialCoords.map(c => c.y), fitness: 0, meanProbability: 0 });
     for (let i = 1; i < params.popSize; i++) {
-      const ind = { xs: [], ys: [], fitness: 0 };
+      const ind = { xs: [], ys: [], fitness: 0, meanProbability: 0 };
       for (let j = 0; j < initialCoords.length; j++) {
         const pos = randomInMask(activeMask); ind.xs.push(pos.x); ind.ys.push(pos.y);
       }
@@ -83,7 +80,7 @@ export const runOptimization = async (
     }
   } else {
     for (let i = 0; i < params.popSize; i++) {
-      const ind = { xs: [], ys: [], fitness: 0 };
+      const ind = { xs: [], ys: [], fitness: 0, meanProbability: 0 };
       for (let j = 0; j < params.numRecorders; j++) {
         const pos = randomInMask(activeMask); ind.xs.push(pos.x); ind.ys.push(pos.y);
       }
@@ -95,10 +92,13 @@ export const runOptimization = async (
 
   // ── Main GA loop ──────────────────────────────────────────────────────────
   for (let gen = 0; gen < params.generations; gen++) {
-    for (let ind of population)
-      ind.fitness = evaluateIndividual(ind, gridX, gridY, activeMask, gen, params);
+    for (let ind of population) {
+      const result = evaluateIndividual(ind, gridX, gridY, activeMask, params);
+      ind.fitness = result.fitness;
+      ind.meanProbability = result.meanProbability;
+    }
     population.sort((a, b) => b.fitness - a.fitness);
-    bestScores.push(population[0].fitness);
+    bestScores.push(population[0].meanProbability);
     setProgress(((gen + 1) / params.generations) * 100);
 
     const parents = population.slice(0, 5);
@@ -112,6 +112,7 @@ export const runOptimization = async (
         xs: p1.xs.map((x, i) => a * x + (1 - a) * p2.xs[i]),
         ys: p1.ys.map((y, i) => a * y + (1 - a) * p2.ys[i]),
         fitness: 0,
+        meanProbability: 0,
       };
       for (let i = 0; i < child.xs.length; i++) {
         if (!isInMask(child.xs[i], child.ys[i], activeMask)) {
@@ -124,7 +125,6 @@ export const runOptimization = async (
           do {
             nx = child.xs[i] + (Math.random() - 0.5) * 2 * params.mutationStd;
             ny = child.ys[i] + (Math.random() - 0.5) * 2 * params.mutationStd;
-            // ✅ FIX: clamp to actual mask bounds, not hardcoded ±30
             nx = Math.max(xMin, Math.min(xMax, nx));
             ny = Math.max(yMin, Math.min(yMax, ny));
             tries++;
@@ -139,14 +139,17 @@ export const runOptimization = async (
     if (gen % 5 === 0) await new Promise(resolve => setTimeout(resolve, 0));
   }
 
-  for (let ind of population)
-    ind.fitness = evaluateIndividual(ind, gridX, gridY, activeMask, params.generations - 1, params);
+  // ── Final evaluation ──────────────────────────────────────────────────────
+  for (let ind of population) {
+    const result = evaluateIndividual(ind, gridX, gridY, activeMask, params);
+    ind.fitness = result.fitness;
+    ind.meanProbability = result.meanProbability;
+  }
   population.sort((a, b) => b.fitness - a.fitness);
   const best = population[0];
 
   // ── Visualisation probability map ─────────────────────────────────────────
   const vizNx = 200, vizNy = 120;
-  // ✅ FIX: viz grid also uses mask bounds
   const pgX = Array.from({ length: vizNx }, (_, i) => xMin + (W * i) / (vizNx - 1));
   const pgY = Array.from({ length: vizNy }, (_, i) => yMin + (H * i) / (vizNy - 1));
   const minUnits = best.xs.length >= 4 ? 4 : 1;
@@ -166,7 +169,7 @@ export const runOptimization = async (
   const meanProbability = cnt > 0 ? sumP / cnt : 0;
 
   setResults({
-    best: { xs: best.xs, ys: best.ys, fitness: best.fitness, meanProbability },
+    best: { xs: best.xs, ys: best.ys, fitness: best.meanProbability, meanProbability },
     scores: bestScores,
     algorithmType: 'genetic',
     probabilityMap,

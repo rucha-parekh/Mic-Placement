@@ -1,4 +1,10 @@
 // utils/gradientDescent.js
+//
+// FIX: in-loop scores now track P(≥4) via computePGe4 (was P(≥3) via
+// computePGe3). This makes every value in the scores[] array consistent
+// with the final meanProbability that is stored on the result, so the
+// convergence chart Y-axis is uniform across the whole run and across
+// the GA→GD boundary in hybrid mode.
 
 import { isInMask, randomInMask, getMaskBounds } from './maskOperations';
 
@@ -22,12 +28,10 @@ export async function runGradientDescent(
   const emptyPenaltyFraction = params.emptyPenaltyFraction * 10;
   const minProbThreshold     = 0.05;
 
-  // ✅ FIX: all bounds come from the mask
   const { xMin, xMax, yMin, yMax } = getMaskBounds(mask);
   const W = xMax - xMin;
   const H = yMax - yMin;
 
-  // Grid — matches mask world extent (200×120 resolution same as before)
   const gridSizeX = 200, gridSizeY = 120;
   const gridX = Array.from({ length: gridSizeX }, (_, i) => xMin + (W * i) / (gridSizeX - 1));
   const gridY = Array.from({ length: gridSizeY }, (_, i) => yMin + (H * i) / (gridSizeY - 1));
@@ -64,8 +68,12 @@ export async function runGradientDescent(
     );
   }
 
-  function computePGe3(p) {
+  // ✅ FIX: renamed from computePGe3 → computePGe4, now computes P(≥4)
+  // so that in-loop scores[] match the final meanProbability (also P(≥4)).
+  function computePGe4(p) {
     const Ny = p.length, Nx = p[0].length, numR = p[0][0].length;
+    // Fall back to P(≥3) when fewer than 4 recorders (matches fitnessEvaluation)
+    const threshold = numR >= 4 ? 4 : numR >= 3 ? 3 : 1;
     return Array.from({ length: Ny }, (_, yi) =>
       Array.from({ length: Nx }, (_, xi) => {
         if (!isValidPoint(gridX[xi], gridY[yi])) return 0;
@@ -86,7 +94,18 @@ export async function runGradientDescent(
             P2 += prod;
           }
         }
-        return 1 - P0 - P1 - P2;
+        if (threshold <= 3) return 1 - P0 - P1 - P2;
+        let P3 = 0;
+        for (let i = 0; i < numR; i++) {
+          for (let j = i+1; j < numR; j++) {
+            for (let k = j+1; k < numR; k++) {
+              let prod = pr[i] * pr[j] * pr[k];
+              for (let m = 0; m < numR; m++) { if (m!==i && m!==j && m!==k) prod *= 1-pr[m]; }
+              P3 += prod;
+            }
+          }
+        }
+        return 1 - P0 - P1 - P2 - P3;
       })
     );
   }
@@ -253,7 +272,6 @@ export async function runGradientDescent(
     return [dPx_map, dPy_map];
   }
 
-  // ✅ FIX: project back into mask using actual bounds, not hardcoded semicircle logic
   function projectInsideMask(pos) {
     let [x, y] = pos;
     x = Math.max(xMin, Math.min(xMax, x));
@@ -271,8 +289,9 @@ export async function runGradientDescent(
     }
 
     const p = computeProbabilities(recPositions);
-    const P = computePGe3(p);
+    const P = computePGe4(p); // ✅ FIX: was computePGe3
 
+    // ✅ FIX: scores[] now records P(≥4) mean, matching final meanProbability
     let sumP = 0, cnt = 0;
     for (let yi = 0; yi < gridSizeY; yi++)
       for (let xi = 0; xi < gridSizeX; xi++)
@@ -308,7 +327,6 @@ export async function runGradientDescent(
 
   // ── Final visualisation map ───────────────────────────────────────────────
   const vizNx = 200, vizNy = 120;
-  // ✅ FIX: viz grid uses mask bounds
   const pgX = Array.from({ length: vizNx }, (_, i) => xMin + (W * i) / (vizNx - 1));
   const pgY = Array.from({ length: vizNy }, (_, i) => yMin + (H * i) / (vizNy - 1));
   const numRf = recPositions.length;
@@ -358,6 +376,5 @@ export async function runGradientDescent(
     minUnits: numRf >= 4 ? 4 : 3,
     vmax: 1,
   });
-
   setIsRunning(false);
 }
